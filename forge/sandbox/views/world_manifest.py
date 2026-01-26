@@ -23,7 +23,7 @@ class WorldManifestPage:
         st.markdown("### Foundation Intelligence Overview")
         st.markdown("This is your extracted intelligence foundation. Review the entities, relationships, and data quality before building your simulation world.")
         
-        if not self.session.db or not self.session.db.world_conn:
+        if not self.session.db:
             st.error("No database connection.")
             return
         

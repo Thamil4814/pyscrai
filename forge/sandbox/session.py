@@ -37,12 +37,12 @@ class Session:
     
     @property
     def sync_status(self) -> Dict[str, Any]:
-        """Get sync status."""
+        """Get sync status (deprecated)."""
         return st.session_state.get('sync_status', {'drift_detected': False, 'entities': []})
     
     @sync_status.setter
     def sync_status(self, value: Dict[str, Any]):
-        """Set sync status."""
+        """Set sync status (deprecated)."""
         st.session_state['sync_status'] = value
     
     @property
@@ -70,24 +70,29 @@ class Session:
         if 'initialized' not in st.session_state:
             st.session_state['initialized'] = True
             st.session_state['project_path'] = None
-            st.session_state['sync_status'] = {'drift_detected': False, 'entities': []}
             st.session_state['user_preferences'] = {}
             st.session_state['selected_entity'] = None
-            st.session_state['checked_drift'] = False
     
     def reset_project(self):
         """Reset project-specific session state while keeping preferences."""
-        keys_to_remove = ['project_path', 'sync_status', 'selected_entity', 'checked_drift']
+        keys_to_remove = ['project_path', 'selected_entity']
         for key in keys_to_remove:
             if key in st.session_state:
                 del st.session_state[key]
-        
-        # Reset to defaults
-        st.session_state['sync_status'] = {'drift_detected': False, 'entities': []}
     
     def clear_all(self):
         """Reset all session state."""
-        keys_to_remove = ['project_path', 'sync_status', 'user_preferences', 'selected_entity', 'checked_drift']
+        keys_to_remove = ['project_path', 'user_preferences', 'selected_entity']
         for key in keys_to_remove:
             if key in st.session_state:
                 del st.session_state[key]
+    
+    def load_project(self, project_path: Path):
+        """Load a project and update session state."""
+        self.project_path = project_path
+        st.cache_resource.clear()
+    
+    def clear_project(self):
+        """Clear the current project from session."""
+        self.reset_project()
+        st.cache_resource.clear()
