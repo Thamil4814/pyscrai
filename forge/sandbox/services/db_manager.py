@@ -113,17 +113,22 @@ class SandboxDB:
         return self.conn.execute("SELECT * FROM relationships").df()
     
     def get_promotable_entities(self):
-        """Get entities that can be promoted to active agents."""
+        """Get entities that can be promoted to active agents (includes orphaned agents)."""
         import pandas as pd
         if not self.conn:
             return pd.DataFrame()
         
         query = """
-            SELECT e.*, 
+            SELECT COALESCE(e.id, a.agent_id) as id,
+                   COALESCE(e.type, 'AGENT') as type,
+                   COALESCE(e.label, a.agent_id) as label,
+                   e.attributes_json,
+                   e.created_at,
+                   e.updated_at,
                    CASE WHEN a.agent_id IS NOT NULL THEN true ELSE false END as is_active,
                    a.persona_prompt, a.goals, a.capabilities, a.state
             FROM entities e
-            LEFT JOIN active_agents a ON e.id = a.agent_id
+            FULL OUTER JOIN active_agents a ON e.id = a.agent_id
         """
         return self.conn.execute(query).df()
     

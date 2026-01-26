@@ -1,5 +1,6 @@
 import streamlit as st
 from pathlib import Path
+from forge.shared.domain.ingestion.extraction.service import ExtractionService
 
 class ExtractionLab:
     def render(self, session):
@@ -44,9 +45,34 @@ class ExtractionLab:
         st.success(f"Ingested {count} files into {source_dir.name}")
 
     def _run_extraction(self, session, chunk_size, overlap):
+        source_dir = session.project_path / "source_docs"
         db_path = str(session.project_path / "world.duckdb")
         
+        if not source_dir.exists() or not list(source_dir.glob("*.pdf")) + list(source_dir.glob("*.txt")):
+            st.warning("No documents found. Please upload files first.")
+            return
+        
         with st.status("Extracting entities...", expanded=True) as status:
-            st.write("Initializing models...")
-            st.info("🚧 Extraction integration coming soon - this will process documents and populate the database")
-            status.update(label="Ready for integration", state="complete")
+            try:
+                st.write("🔧 Initializing ExtractionService...")
+                service = ExtractionService(
+                    db_connection_string=db_path,
+                    chunk_size=chunk_size,
+                    chunk_overlap=overlap
+                )
+                
+                st.write(f"📂 Processing documents in {source_dir.name}...")
+                result = service.process_directory(source_dir)
+                
+                if "error" in result:
+                    st.error(f"❌ {result['error']}")
+                    status.update(label="Extraction failed", state="error")
+                else:
+                    st.write(f"✅ Processed {result['processed_files']} files")
+                    st.write(f"🔍 Extracted {result['entities_count']} entities")
+                    status.update(label="Extraction complete", state="complete")
+                    st.success(f"Successfully extracted {result['entities_count']} entities from {result['processed_files']} documents")
+            
+            except Exception as e:
+                st.error(f"❌ Extraction failed: {str(e)}")
+                status.update(label="Extraction error", state="error")
