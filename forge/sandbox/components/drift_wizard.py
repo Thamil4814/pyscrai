@@ -64,22 +64,16 @@ def render_new_entities(db: SandboxDB, entities: List[Dict[str, Any]]):
                 
                 # Show entity details if available
                 try:
-                    if not db or not db.world_conn:
-                        st.error("No database connection.")
-                        continue
-                    details = db.world_conn.execute("""
-                        SELECT attributes_json FROM raw_db.entities 
-                        WHERE id = ?
-                    """, [entity['entity_id']]).fetchone()
-                    if details and details[0]:
+                    entity_details = db.get_entity_details(entity['entity_id'])
+                    if entity_details and entity_details[3]: # attributes_json
                         import json
                         try:
-                            attrs = json.loads(details[0])
+                            attrs = json.loads(entity_details[3])
                             st.markdown("**Attributes:**")
                             for key, value in attrs.items():
                                 st.markdown(f"• **{key}:** {value}")
                         except:
-                            st.markdown(f"**Raw attributes:** {details[0]}")
+                            st.markdown(f"**Raw attributes:** {entity_details[3]}")
                 except Exception as e:
                     st.error(f"Error loading entity details: {e}")
             
@@ -103,22 +97,16 @@ def render_changed_entities(db: SandboxDB, entities: List[Dict[str, Any]]):
             
             # Get entity diff details
             try:
-                if not db or not db.world_conn:
-                    st.error("No database connection.")
-                    continue
-                current_data = db.world_conn.execute("""
-                    SELECT attributes_json FROM raw_db.entities 
-                    WHERE id = ?
-                """, [entity['entity_id']]).fetchone()
+                entity_details = db.get_entity_details(entity['entity_id'])
                 st.markdown("**Current Data (intel.duckdb):**")
-                if current_data and current_data[0]:
+                if entity_details and entity_details[3]: # attributes_json
                     try:
                         import json
-                        attrs = json.loads(current_data[0])
+                        attrs = json.loads(entity_details[3])
                         for key, value in attrs.items():
                             st.markdown(f"• **{key}:** {value}")
                     except:
-                        st.markdown(current_data[0])
+                        st.markdown(entity_details[3])
                 else:
                     st.markdown("*No attributes found*")
                 

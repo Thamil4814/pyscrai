@@ -24,13 +24,16 @@ class Session:
     
     @property
     def db(self):
-        """Get sandbox database connection."""
-        return st.session_state.get('db')
+        """Get sandbox database connection using cached resource."""
+        if self.project_path:
+            from forge.sandbox.services.db_manager import get_db_connection
+            return get_db_connection(self.project_path)
+        return None
     
     @db.setter
     def db(self, value):
-        """Set sandbox database connection."""
-        st.session_state['db'] = value
+        """No longer used as db is managed via st.cache_resource."""
+        pass
     
     @property
     def sync_status(self) -> Dict[str, Any]:
@@ -67,7 +70,6 @@ class Session:
         if 'initialized' not in st.session_state:
             st.session_state['initialized'] = True
             st.session_state['project_path'] = None
-            st.session_state['db'] = None
             st.session_state['sync_status'] = {'drift_detected': False, 'entities': []}
             st.session_state['user_preferences'] = {}
             st.session_state['selected_entity'] = None
@@ -75,7 +77,7 @@ class Session:
     
     def reset_project(self):
         """Reset project-specific session state while keeping preferences."""
-        keys_to_remove = ['project_path', 'db', 'sync_status', 'selected_entity', 'checked_drift']
+        keys_to_remove = ['project_path', 'sync_status', 'selected_entity', 'checked_drift']
         for key in keys_to_remove:
             if key in st.session_state:
                 del st.session_state[key]
@@ -85,7 +87,7 @@ class Session:
     
     def clear_all(self):
         """Reset all session state."""
-        keys_to_remove = ['project_path', 'db', 'sync_status', 'user_preferences', 'selected_entity', 'checked_drift']
+        keys_to_remove = ['project_path', 'sync_status', 'user_preferences', 'selected_entity', 'checked_drift']
         for key in keys_to_remove:
             if key in st.session_state:
                 del st.session_state[key]

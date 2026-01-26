@@ -10,13 +10,7 @@ This application provides a web-based interface for:
 """
 
 import streamlit as st
-import sys
 from pathlib import Path
-
-# Add forge directory to path for imports
-forge_path = Path(__file__).parent.parent.resolve()
-if str(forge_path) not in sys.path:
-    sys.path.insert(0, str(forge_path))
 
 from forge.sandbox.session import Session
 from forge.sandbox.services.db_manager import SandboxDB, SyncService
@@ -51,9 +45,8 @@ def main():
             
             # Initialize database connection
             try:
-                db = SandboxDB(session.project_path)
-                db.connect()
-                session.db = db
+                # Setting project_path will automatically make session.db available 
+                # via st.cache_resource in session.py
                 st.rerun()  # Refresh to show the main app
             except Exception as e:
                 st.error(f"Failed to connect to database: {e}")
@@ -88,8 +81,6 @@ def render_main_app(session: Session):
             st.rerun()
         
         if st.button("❌ Disconnect"):
-            if session.db:
-                session.db.close()
             session.clear_all()
             st.rerun()
         

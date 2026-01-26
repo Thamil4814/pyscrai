@@ -12,40 +12,43 @@ from datetime import datetime
 from forge.sandbox.session import Session
 
 
-def render_simulation_lab(session: Session):
-    """Render the Simulation Lab page."""
-    st.header("🧪 Simulation Lab")
-    st.markdown("### Test Components & Export Simulation Packages")
-    st.markdown("Validate your simulation world and export complete packages for deployment.")
-    
-    if not session.db:
-        st.error("❌ No database connection.")
-        return
-    
-    # Simulation status overview
-    st.subheader("📊 Simulation Status")
-    
-    try:
-        # Get active agents
-        agents_df = session.db.world_conn.execute("""
-            SELECT aa.agent_id, e.label, e.type
-            FROM active_agents aa
-            JOIN raw_db.entities e ON aa.agent_id = e.id
-        """).df()
+class SimulationLabPage:
+    """Simulation Lab page implementation."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def render(self):
+        """Render the Simulation Lab page."""
+        st.header("🧪 Simulation Lab")
+        st.markdown("### Test Components & Export Simulation Packages")
+        st.markdown("Validate your simulation world and export complete packages for deployment.")
         
-        # Get spatial bookmarks
-        locations_df = session.db.world_conn.execute("""
-            SELECT sb.location_id, e.label
-            FROM spatial_bookmarks sb
-            JOIN raw_db.entities e ON sb.location_id = e.id
-        """).df()
+        if not self.session.db:
+            st.error("❌ No database connection.")
+            return
         
-        # Get narrative contexts
-        contexts_df = session.db.world_conn.execute("""
-            SELECT context_id, title FROM narrative_context
-        """).df()
+        try:
+            # Load data using repository methods
+            agents_df = self.session.db.get_active_agents()
+            locations_df = self.session.db.get_spatial_bookmarks()
+            contexts_df = self.session.db.get_narrative_contexts()
+            total_entities = self.session.db.get_raw_entity_count()
+            
+            # Render sections
+            self._render_status_overview(agents_df, locations_df, contexts_df, total_entities)
+            self._render_component_testing(agents_df)
+            self._render_export_section()
+            self._render_validation_section(agents_df, locations_df, total_entities)
+            
+        except Exception as e:
+            st.error(f"❌ Error in simulation lab: {e}")
+            st.code(str(e))
+
+    def _render_status_overview(self, agents_df, locations_df, contexts_df, total_entities):
+        """Render simulation status overview metrics."""
+        st.subheader("📊 Simulation Status")
         
-        # Display status
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -59,17 +62,14 @@ def render_simulation_lab(session: Session):
         
         with col4:
             # Calculate readiness score
-            try:
-                total_entities = len(session.db.world_conn.execute("SELECT id FROM raw_db.entities").fetchall())
-            except Exception:
-                total_entities = 0
             if total_entities > 0:
                 readiness = min(100, round(((len(agents_df) + len(locations_df) + len(contexts_df)) / total_entities) * 100))
             else:
                 readiness = 0
             st.metric("🎯 Readiness", f"{readiness}%")
-        
-        # Component testing section
+
+    def _render_component_testing(self, agents_df):
+        """Render component testing section."""
         st.subheader("🔧 Component Testing")
         
         if len(agents_df) > 0:
@@ -96,10 +96,7 @@ def render_simulation_lab(session: Session):
                     
                     with col_b:
                         if st.button(f"📋 View Persona", key=f"persona_{agent['agent_id']}"):
-                            persona_data = session.db.world_conn.execute("""
-                                SELECT persona_prompt, goals, capabilities
-                                FROM active_agents WHERE agent_id = ?
-                            """, [agent['agent_id']]).fetchone()
+                            persona_data = self.session.db.get_agent_details(agent['agent_id'])
                             
                             if persona_data:
                                 st.markdown("**Persona Prompt:**")
@@ -112,8 +109,9 @@ def render_simulation_lab(session: Session):
                                 st.text(persona_data[2])
         else:
             st.info("💡 **No active agents available**. Visit the Agent Forge to create agents for testing.")
-        
-        # Export section
+
+    def _render_export_section(self):
+        """Render simulation package export section."""
         st.markdown("---")
         st.subheader("📦 Export Simulation Package")
         st.markdown("Create a portable simulation package that can be deployed on other systems.")
@@ -129,8 +127,8 @@ def render_simulation_lab(session: Session):
             st.markdown("✅ **manifest.json** - Package metadata")
             
             # Check for templates directory
-            if session.project_path is not None:
-                templates_dir = session.project_path / "templates"
+            if self.session.project_path is not None:
+                templates_dir = self.session.project_path / "templates"
                 if templates_dir.exists():
                     template_count = len(list(templates_dir.glob("*.j2")))
                     st.markdown(f"✅ **templates/** - {template_count} template files")
@@ -141,53 +139,58 @@ def render_simulation_lab(session: Session):
         
         with col2:
             st.markdown("**Export Options:**")
-            include_examples = st.checkbox("Include example scenarios", value=True)
-            include_docs = st.checkbox("Include documentation", value=True)
-            compress_level = st.slider("Compression Level", 1, 9, 6, help="Higher = smaller file, slower")
+            st.checkbox("Include example scenarios", value=True, key="export_examples")
+            st.checkbox("Include documentation", value=True, key="export_docs")
+            st.slider("Compression Level", 1, 9, 6, help="Higher = smaller file, slower", key="export_compression")
         
         # Export button
         if st.button("📦 Create Export Package", type="primary"):
-            if session.project_path is not None:
-                try:
-                    from forge.sandbox.services.export_service import ExportService
+            self._handle_export()
+
+    def _handle_export(self):
+        """Handle the export process."""
+        if self.session.project_path is not None:
+            try:
+                from forge.sandbox.services.export_service import ExportService
+                
+                with st.spinner("Creating simulation package..."):
+                    export_service = ExportService()
                     
-                    with st.spinner("Creating simulation package..."):
-                        export_service = ExportService()
-                        
-                        # Generate filename with timestamp
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        filename = f"{session.project_path.name}_simulation_{timestamp}.zip"
-                        output_path = session.project_path.parent / filename
-                        
-                        # Create package
-                        package_path = export_service.create_package(
-                            session.project_path,
-                            output_path
+                    # Generate filename with timestamp
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"{self.session.project_path.name}_simulation_{timestamp}.zip"
+                    output_path = self.session.project_path.parent / filename
+                    
+                    # Create package
+                    package_path = export_service.create_package(
+                        self.session.project_path,
+                        output_path
+                    )
+                    
+                    # Success message
+                    file_size = round(package_path.stat().st_size / (1024*1024), 2)
+                    st.success(f"✅ **Package created successfully!**")
+                    st.markdown(f"**File:** `{package_path.name}`")
+                    st.markdown(f"**Size:** {file_size} MB")
+                    st.markdown(f"**Location:** `{package_path.parent}`")
+                    
+                    # Provide download
+                    with open(package_path, 'rb') as f:
+                        st.download_button(
+                            "⬇️ Download Package",
+                            data=f.read(),
+                            file_name=package_path.name,
+                            mime="application/zip",
+                            type="secondary"
                         )
-                        
-                        # Success message
-                        file_size = round(package_path.stat().st_size / (1024*1024), 2)
-                        st.success(f"✅ **Package created successfully!**")
-                        st.markdown(f"**File:** `{package_path.name}`")
-                        st.markdown(f"**Size:** {file_size} MB")
-                        st.markdown(f"**Location:** `{package_path.parent}`")
-                        
-                        # Provide download
-                        with open(package_path, 'rb') as f:
-                            st.download_button(
-                                "⬇️ Download Package",
-                                data=f.read(),
-                                file_name=package_path.name,
-                                mime="application/zip",
-                                type="secondary"
-                            )
-                except Exception as e:
-                    st.error(f"❌ **Export failed:** {e}")
-                    st.code(str(e))
-            else:
-                st.error("No project selected. Cannot export package.")
-        
-        # Validation section
+            except Exception as e:
+                st.error(f"❌ **Export failed:** {e}")
+                st.code(str(e))
+        else:
+            st.error("No project selected. Cannot export package.")
+
+    def _render_validation_section(self, agents_df, locations_df, total_entities):
+        """Render world validation section."""
         st.markdown("---")
         st.subheader("✅ World Validation")
         
@@ -207,14 +210,10 @@ def render_simulation_lab(session: Session):
             validation_results.append(("⚠️", "No spatial data", "Visit Spatial Domain to map locations"))
         
         # Check 3: Database integrity
-        try:
-            entity_count = len(session.db.world_conn.execute("SELECT id FROM raw_db.entities").fetchall())
-            if entity_count > 0:
-                validation_results.append(("✅", "Database integrity", f"{entity_count} entities in intel.duckdb"))
-            else:
-                validation_results.append(("❌", "Empty database", "No entities found in intel.duckdb"))
-        except:
-            validation_results.append(("❌", "Database error", "Could not verify database integrity"))
+        if total_entities > 0:
+            validation_results.append(("✅", "Database integrity", f"{total_entities} entities in intel.duckdb"))
+        else:
+            validation_results.append(("❌", "Empty database", "No entities found in intel.duckdb"))
         
         # Display validation results
         for status, title, description in validation_results:
@@ -234,7 +233,9 @@ def render_simulation_lab(session: Session):
             st.success(f"🎉 **Simulation world is ready for deployment!** ({passed_checks}/{total_checks} checks passed)")
         else:
             st.warning(f"⚠️ **Simulation world needs attention** ({passed_checks}/{total_checks} checks passed)")
-        
-    except Exception as e:
-        st.error(f"❌ Error in simulation lab: {e}")
-        st.code(str(e))
+
+
+def render_simulation_lab(session: Session):
+    """Legacy entry point for the Simulation Lab page."""
+    page = SimulationLabPage(session)
+    page.render()

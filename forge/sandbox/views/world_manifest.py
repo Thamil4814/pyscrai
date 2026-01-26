@@ -47,28 +47,16 @@ class WorldManifestPage:
             st.code(str(e))
     
     def _load_entities(self) -> pd.DataFrame:
-        """Load entities from intel.duckdb."""
-        if not self.session.db or not self.session.db.world_conn:
-            st.error("No database connection.")
-            return pd.DataFrame()  # Return an empty DataFrame if no connection
-        
-        return self.session.db.world_conn.execute("""
-            SELECT id, type, label, attributes_json, created_at 
-            FROM raw_db.entities 
-            ORDER BY type, label
-        """).df()
+        """Load entities using repository method."""
+        if not self.session.db:
+            return pd.DataFrame()
+        return self.session.db.get_entities()
     
     def _load_relationships(self) -> pd.DataFrame:
-        """Load relationships from intel.duckdb."""
-        if not self.session.db or not self.session.db.world_conn:
-            st.error("No database connection.")
-            return pd.DataFrame()  # Return an empty DataFrame if no connection
-        
-        return self.session.db.world_conn.execute("""
-            SELECT id, source, target, type, confidence, doc_id, created_at
-            FROM raw_db.relationships 
-            ORDER BY confidence DESC
-        """).df()
+        """Load relationships using repository method."""
+        if not self.session.db:
+            return pd.DataFrame()
+        return self.session.db.get_relationships()
     
     def _render_empty_state(self):
         """Render empty state when no data is available."""

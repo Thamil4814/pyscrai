@@ -17,6 +17,21 @@ import streamlit as st
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
 
+@st.cache_resource
+def get_db_connection(project_path: Union[str, Path]) -> 'SandboxDB':
+    """Get a cached database connection for the project.
+    
+    Args:
+        project_path: Path to the project directory
+        
+    Returns:
+        SandboxDB: Connected database manager
+    """
+    db = SandboxDB(project_path)
+    db.connect()
+    return db
+
+
 class SandboxDB:
     """Manages dual-DB setup with ATTACH for READ_ONLY raw data."""
     
@@ -129,6 +144,57 @@ class SandboxDB:
         
         conn.commit()
     
+    def get_active_agents(self):
+        """Get all active agents with their labels and types."""
+        if not self.world_conn:
+            return []
+        return self.world_conn.execute("""
+            SELECT aa.agent_id, e.label, e.type, aa.persona_prompt, aa.goals, aa.capabilities, aa.state
+            FROM active_agents aa
+            JOIN raw_db.entities e ON aa.agent_id = e.id
+            ORDER BY e.label
+        """).df()
+
+    def get_agent_details(self, agent_id: str):
+        """Get detailed information for a specific agent."""
+        if not self.world_conn:
+            return None
+        return self.world_conn.execute("""
+            SELECT persona_prompt, goals, capabilities, state
+            FROM active_agents WHERE agent_id = ?
+        """, [agent_id]).fetchone()
+
+    def get_spatial_bookmarks(self):
+        """Get all spatial bookmarks with labels."""
+        if not self.world_conn:
+            return []
+        return self.world_conn.execute("""
+            SELECT sb.location_id, e.label, sb.latitude, sb.longitude, sb.elevation, sb.spatial_tags
+            FROM spatial_bookmarks sb
+            JOIN raw_db.entities e ON sb.location_id = e.id
+            ORDER BY e.label
+        """).df()
+
+    def get_narrative_contexts(self):
+        """Get all narrative contexts."""
+        if not self.world_conn:
+            return []
+        return self.world_conn.execute("""
+            SELECT context_id, title, description, mood, timeline 
+            FROM narrative_context
+            ORDER BY title
+        """).df()
+
+    def get_raw_entity_count(self):
+        """Get total count of entities in the raw database."""
+        if not self.world_conn:
+            return 0
+        try:
+            result = self.world_conn.execute("SELECT COUNT(*) FROM raw_db.entities").fetchone()
+            return result[0] if result else 0
+        except Exception:
+            return 0
+
     def get_promotable_entities(self):
         """Get entities from intel.duckdb that are not yet active agents."""
         if not self.world_conn:
@@ -137,12 +203,67 @@ class SandboxDB:
         return self.world_conn.execute("""
             SELECT 
                 r.id, r.type, r.label, r.attributes_json,
-                CASE WHEN w.agent_id IS NOT NULL THEN TRUE ELSE FALSE END as is_active
+                CASE WHEN w.agent_id IS NOT NULL THEN TRUE ELSE FALSE END as is_active,
+                w.persona_prompt, w.goals, w.capabilities, w.state
             FROM raw_db.entities r
             LEFT JOIN active_agents w ON r.id = w.agent_id
+            WHERE r.type IN ('PERSON', 'ORGANIZATION', 'CHARACTER', 'ENTITY')
             ORDER BY r.type, r.label
         """).df()
     
+    def get_entity_details(self, entity_id: str):
+        """Get details for a specific entity from raw database."""
+        if not self.world_conn:
+            return None
+        return self.world_conn.execute("""
+            SELECT id, type, label, attributes_json
+            FROM raw_db.entities WHERE id = ?
+        """, [entity_id]).fetchone()
+
+    def save_agent_persona(self, agent_id: str, persona_prompt: str, goals: str, capabilities: str, state: str = "{}"):
+        """Save or update an agent persona."""
+        if not self.world_conn:
+            return
+        
+        self.world_conn.execute("""
+            INSERT INTO active_agents (agent_id, persona_prompt, goals, capabilities, state, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (agent_id) DO UPDATE SET
+                persona_prompt = excluded.persona_prompt,
+                goals = excluded.goals,
+                capabilities = excluded.capabilities,
+                state = excluded.state,
+                updated_at = excluded.updated_at
+        """, [agent_id, persona_prompt, goals, capabilities, state])
+        self.world_conn.commit()
+
+    def delete_agent(self, agent_id: str):
+        """Delete an agent from active_agents."""
+        if not self.world_conn:
+            return
+        self.world_conn.execute("DELETE FROM active_agents WHERE agent_id = ?", [agent_id])
+        self.world_conn.commit()
+
+    def get_entities(self):
+        """Get all entities from raw database."""
+        if not self.world_conn:
+            return []
+        return self.world_conn.execute("""
+            SELECT id, type, label, attributes_json, created_at 
+            FROM raw_db.entities 
+            ORDER BY type, label
+        """).df()
+
+    def get_relationships(self):
+        """Get all relationships from raw database."""
+        if not self.world_conn:
+            return []
+        return self.world_conn.execute("""
+            SELECT id, source, target, type, confidence, doc_id, created_at
+            FROM raw_db.relationships 
+            ORDER BY confidence DESC
+        """).df()
+
     def detect_drift(self):
         """Detect entities in intel.duckdb that have changed."""
         if not self.world_conn:
