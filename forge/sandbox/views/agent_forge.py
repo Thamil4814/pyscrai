@@ -10,7 +10,7 @@ Allows users to:
 import streamlit as st
 import json
 import pandas as pd
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from forge.sandbox.session import Session
 
 
@@ -132,12 +132,17 @@ class AgentForgePage:
         if not selected:
             st.info("👈 **Select an entity** to create or edit an agent")
             return
+
+        db = self.session.db
+        if not db:
+            st.error("No database connection.")
+            return
         
         st.subheader(f"🎭 Agent Editor: {selected['label']}")
         st.markdown(f"**Type:** {selected['type']} • **ID:** `{selected['id']}`")
         
         # Load entity details using repository method
-        entity_data = self.session.db.get_entity_details(selected['id'])
+        entity_data = db.get_entity_details(selected['id'])
         
         # Show entity context
         with st.expander("📄 Entity Context", expanded=False):
@@ -275,26 +280,26 @@ Purpose:
 - Contribute meaningfully to scenarios and interactions
 - Develop and evolve based on experiences"""
 
-    def _save_agent(self, entity: Dict[str, Any], persona: str, goals: str, capabilities: str, state: str):
+    def _save_agent(self, entity: Dict[str, Any], persona: Optional[str], goals: Optional[str], capabilities: Optional[str], state: Optional[str]):
         """Save agent configuration using repository methods."""
         if not self.session.db:
             st.error("No database connection.")
             return
 
         try:
-            # Ensure no None values for required string arguments
-            persona = persona or ""
-            goals = goals or "[]"
-            capabilities = capabilities or "[]"
-            state = state or "{}"
+            # Ensure string values for required fields
+            persona_text: str = persona or ""
+            goals_text: str = goals or "[]"
+            capabilities_text: str = capabilities or "[]"
+            state_text: str = state or "{}"
 
             # Validate JSON inputs
-            json.loads(goals)
-            json.loads(capabilities)
-            json.loads(state)
+            json.loads(goals_text)
+            json.loads(capabilities_text)
+            json.loads(state_text)
 
             # Save using repository method
-            self.session.db.save_agent_persona(entity['id'], persona, goals, capabilities, state)
+            self.session.db.save_agent_persona(entity['id'], persona_text, goals_text, capabilities_text, state_text)
 
             st.success(f"✅ Agent '{entity['label']}' saved successfully!")
             

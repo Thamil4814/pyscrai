@@ -1,8 +1,64 @@
 # forge/sandbox/services/db_manager.py
 import duckdb
 from pathlib import Path
-from typing import Optional, Union
+from typing import List, Optional, Union
 import streamlit as st
+
+
+class ProjectManager:
+    """Lightweight helper to discover sandbox projects on disk."""
+
+    def __init__(self, data_dir: Optional[Union[str, Path]] = None):
+        self.data_dir = Path(data_dir) if data_dir else Path("forge/data/projects")
+        # Ensure the projects directory exists so callers can rely on it
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
+    def list_projects(self) -> List[dict]:
+        """Return metadata for available projects."""
+        projects: List[dict] = []
+        if not self.data_dir.exists():
+            return projects
+
+        for project_path in sorted(self.data_dir.iterdir()):
+            if not project_path.is_dir():
+                continue
+            info = self._collect_project_info(project_path)
+            projects.append({
+                "name": project_path.name,
+                "path": project_path,
+                "info": info,
+            })
+
+        return projects
+
+    def _collect_project_info(self, project_path: Path) -> dict:
+        """Gather basic presence and count information for a project."""
+        intel_db = project_path / "intel.duckdb"
+        world_db = project_path / "world.duckdb"
+        config = project_path / "config.json"
+
+        entity_count = 0
+        relationship_count = 0
+
+        if world_db.exists():
+            try:
+                with duckdb.connect(str(world_db), read_only=True) as conn:
+                    entity_row = conn.execute("SELECT COUNT(*) FROM entities").fetchone()
+                    rel_row = conn.execute("SELECT COUNT(*) FROM relationships").fetchone()
+                    entity_count = entity_row[0] if entity_row else 0
+                    relationship_count = rel_row[0] if rel_row else 0
+            except Exception:
+                # If the DB is missing schema or unreadable, fall back to zeros
+                entity_count = 0
+                relationship_count = 0
+
+        return {
+            "has_intel_db": intel_db.exists(),
+            "has_world_db": world_db.exists(),
+            "has_config": config.exists(),
+            "entity_count": entity_count,
+            "relationship_count": relationship_count,
+        }
 
 class SandboxDB:
     def __init__(self, project_path: Union[str, Path]):
@@ -163,7 +219,8 @@ class SandboxDB:
         """Get total count of entities."""
         if not self.conn:
             return 0
-        return self.conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+        row = self.conn.execute("SELECT COUNT(*) FROM entities").fetchone()
+        return row[0] if row else 0
     
     def get_entity_details(self, entity_id: str):
         """Get detailed entity information."""

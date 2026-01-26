@@ -71,6 +71,11 @@ class SimulationLabPage:
     def _render_component_testing(self, agents_df):
         """Render component testing section."""
         st.subheader("🔧 Component Testing")
+
+        db = self.session.db
+        if not db:
+            st.error("No database connection.")
+            return
         
         if len(agents_df) > 0:
             st.markdown("**Available Agents for Testing:**")
@@ -96,7 +101,7 @@ class SimulationLabPage:
                     
                     with col_b:
                         if st.button(f"📋 View Persona", key=f"persona_{agent['agent_id']}"):
-                            persona_data = self.session.db.get_agent_details(agent['agent_id'])
+                            persona_data = db.get_agent_details(agent['agent_id'])
                             
                             if persona_data:
                                 st.markdown("**Persona Prompt:**")

@@ -1,12 +1,18 @@
 """PyScrAI Forge package."""
 
+from importlib import import_module
+from typing import Any
+
 from .shared.core.event_bus import EventBus
 
-# Store and AppState require fletx, so import them lazily/optionally
+__all__ = ["EventBus"]
+
+# Store and AppState depend on optional fletx; import dynamically when present
 try:
-    from .extractor.state.store import Store
-    from .extractor.state.app_state import AppState
+    Store = import_module("forge.extractor.state.store").Store  # type: ignore[attr-defined]
+    AppState = import_module("forge.extractor.state.app_state").AppState  # type: ignore[attr-defined]
     __all__ = ["Store", "AppState", "EventBus"]
-except ImportError:
-    # fletx not installed (e.g., in test environments)
-    __all__ = ["EventBus"]
+except Exception:
+    # Keep exports lean when optional deps are absent
+    Store = Any  # type: ignore[assignment]
+    AppState = Any  # type: ignore[assignment]
