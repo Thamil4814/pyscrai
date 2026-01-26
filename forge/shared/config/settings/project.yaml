@@ -1,0 +1,36 @@
+# Project-Specific Configuration for PyScrAI Forge
+# This file contains settings specific to this project.
+# Values here override user and system defaults, but environment
+# variables can still override these settings.
+
+# Example project-specific configuration:
+
+# llm:
+#   # Use different models for this specialized project
+#   openrouter_model: "anthropic/claude-3-sonnet-20240229"
+#   
+#   # Higher temperature for creative narrative synthesis
+#   narrative_synthesis_temperature: 0.8
+#   
+#   # Longer outputs for detailed analysis
+#   semantic_profiling_max_tokens: 800
+
+# vector:
+#   # Project-specific Qdrant instance
+#   url: "http://project-qdrant:6333"
+#   
+#   # Higher thresholds for strict deduplication
+#   deduplication_threshold: 0.90
+
+# database:
+#   # Custom database path for this project
+#   db_path: "custom_data/project_db.duckdb"
+
+# processing:
+#   # Disable automatic features for manual control
+#   auto_deduplication: false
+#   auto_relationship_inference: false
+
+# ui:
+#   # Project-specific theme
+#   primary_color: "#FF5722"

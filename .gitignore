@@ -1,0 +1,95 @@
+# Temporarily ignore pyscrai_engine for Gemini Context Window
+.zencoder/
+.zenflow/
+tests/
+notes.md
+_dep
+docs
+.github
+.cursor
+world.db
+.vscode/
+data/
+.env
+*.duckdb
+*.wal
+data/_deprecated
+# tests/ 
+# .trae 
+/backup
+.cursorignore
+
+
+/data/projects/archive
+user_config.json
+/cherry_test
+
+*.pdf
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+
+# Local envs
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+
+

@@ -1,0 +1,79 @@
+Extract all named entities from the following document. Identify people, organizations, locations, events, and other significant entities WITH their attributes.
+
+Document:
+{{ content }}
+
+Return a JSON array of entities, where each entity has:
+- "type": One of PERSON, ORG, LOCATION, EVENT, DATE, TIME, COORDINATE, QUANTITY, or OTHER
+- "text": The exact text/name of the entity as it appears in the document
+- "attributes": Object with entity-specific attributes (see below)
+
+ENTITY TYPE DEFINITIONS:
+- PERSON: People, codenames, aliases
+- ORG: Organizations, companies, units, groups
+- LOCATION: Places, facilities, bases (not precise coordinates)
+- EVENT: Operations, incidents, meetings
+- DATE: Calendar dates (e.g., "12 JAN 2026", "2026-02-14")
+- TIME: Times and timestamps (e.g., "0400Z", "2200L", "14:30")
+- COORDINATE: Precise geographic coordinates (e.g., "42.103, -71.402", "38S PC 124 567")
+- QUANTITY: Counts, measurements, metrics (e.g., "14x radios", "65% probability", "$45,000 USD")
+- OTHER: Hardware, systems, identifiers that don't fit above categories
+
+ATTRIBUTES BY TYPE (include when present):
+PERSON:
+  - "status": KIA, DETAINED, ACTIVE, SUSPECTED, etc.
+  - "role": Position, title, or function
+  - "affiliation": Organization/unit they belong to
+
+ORG:
+  - "status": OPERATIONAL, COMPROMISED, DEFUNCT, etc.
+  - "org_type": MILITARY, CRIMINAL, GOVERNMENT, etc.
+
+LOCATION:
+  - "location_type": BASE, CITY, FACILITY, REGION, etc.
+
+EVENT:
+  - "event_type": RAID, OPERATION, MEETING, INCIDENT, etc.
+
+DATE:
+  - "temporal_value": Normalized ISO date if possible (e.g., "2026-01-12")
+
+TIME:
+  - "temporal_value": Time value (e.g., "04:00")
+  - "timezone": Timezone indicator if present (e.g., "Z", "L")
+
+COORDINATE:
+  - "geo_coordinates": Structured coordinates object with "lat", "lon" OR "mgrs" format
+  - "location_name": Associated location name if mentioned (e.g., "Compound Alpha")
+
+QUANTITY:
+  - "numeric_value": The numeric value
+  - "unit": Unit of measurement (e.g., "radios", "USD", "percent")
+  - "modifier": Descriptive modifier (e.g., "counterfeit", "approximately", "minimum")
+
+OTHER:
+  - "asset_type": HARDWARE, DOCUMENT, IDENTIFIER, CURRENCY, etc.
+  - "identifier": Specific ID if applicable (e.g., "HSM-2.5M", "SIG-22904-B")
+
+CRITICAL JSON FORMAT REQUIREMENTS:
+- Use ONLY double quotes (") for all strings, never single quotes (')
+- Escape special characters: use \" for quotes inside strings, \\ for backslashes
+- Ensure all brackets and braces are properly closed
+- No trailing commas before closing brackets or braces
+- All property names must be in double quotes
+- Empty attributes should be {} not null
+
+Example format:
+[
+  {"type": "PERSON", "text": "Captain Sarah Jenkins", "attributes": {"role": "Ground Force Commander", "status": "ACTIVE", "affiliation": "75th Ranger Regiment"}},
+  {"type": "DATE", "text": "12 JAN 2026", "attributes": {"temporal_value": "2026-01-12"}},
+  {"type": "TIME", "text": "2200L", "attributes": {"temporal_value": "22:00", "timezone": "L"}},
+  {"type": "COORDINATE", "text": "42.103, -71.402", "attributes": {"geo_coordinates": {"lat": 42.103, "lon": -71.402}, "location_name": "VOID-POINT"}},
+  {"type": "QUANTITY", "text": "14x AN/PRC-117G Tactical Radios", "attributes": {"numeric_value": 14, "unit": "radios", "modifier": ""}},
+  {"type": "QUANTITY", "text": "$45,000 USD", "attributes": {"numeric_value": 45000, "unit": "USD", "modifier": "counterfeit"}},
+  {"type": "QUANTITY", "text": "65% treason probability", "attributes": {"numeric_value": 65, "unit": "percent", "modifier": "probability"}},
+  {"type": "ORG", "text": "The Iron Syndicate", "attributes": {"org_type": "CRIMINAL", "status": "OPERATIONAL"}},
+  {"type": "OTHER", "text": "SITREP #042-26", "attributes": {"asset_type": "DOCUMENT", "identifier": "042-26"}}
+]
+
+Respond with ONLY the JSON array. Do not include markdown code blocks, explanations, or any other text. The response must be valid JSON that can be parsed by json.loads().

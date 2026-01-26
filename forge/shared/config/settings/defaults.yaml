@@ -1,0 +1,206 @@
+# System Default Configuration for PyScrAI Forge
+# This file contains the baseline configuration values that serve as fallbacks
+# when no user or project-specific overrides are provided.
+
+# Schema version for configuration compatibility
+# Increment when breaking changes are made to config structure
+schema_version: 2
+
+# LLM Configuration
+llm:
+  # Provider settings
+  # default_provider: Primary LLM provider for entity/relationship extraction
+  # Options: "openrouter", "cherry", "lm_proxy"
+  default_provider: "openrouter"
+  
+  # secondary_provider: Fallback provider if primary fails
+  secondary_provider: "lm_proxy"
+  
+  # semantic_provider: Provider for semantic profiling and embeddings
+  # Can be different from default to use specialized models
+  semantic_provider: "openrouter"
+  
+  # Rate limiting (conservative defaults for free tier)
+  # rate_limit_max_concurrent: Max number of simultaneous API calls
+  # Set to 1 for strict free-tier compliance, 2-5 for paid tiers
+  rate_limit_max_concurrent: 1
+  
+  # rate_limit_min_delay: Minimum seconds between API calls
+  # Increase if hitting rate limits, decrease for faster processing (paid tiers)
+  rate_limit_min_delay: 1.0
+  
+  # rate_limit_max_retries: Number of retry attempts on API failure
+  rate_limit_max_retries: 3
+  
+  # rate_limit_retry_delay: Seconds to wait before retrying failed requests
+  rate_limit_retry_delay: 15.0
+  
+  # Model parameters by service
+  # Each service can have custom token limits and temperature settings
+  
+  # Entity extraction: Identifies people, places, organizations, etc.
+  # max_tokens: Maximum response length (2000 = detailed extraction)
+  # temperature: Creativity level (0.3 = focused, deterministic)
+  entity_extraction_max_tokens: 2000
+  entity_extraction_temperature: 0.3
+  
+  # Relationship extraction: Finds connections between entities
+  relationship_extraction_max_tokens: 2000
+  relationship_extraction_temperature: 0.3
+  
+  # Semantic profiling: Generates entity summaries and importance scores
+  # Lower tokens = faster, cheaper; 500 is sufficient for concise profiles
+  semantic_profiling_max_tokens: 500
+  semantic_profiling_temperature: 0.3
+  
+  # Narrative synthesis: Creates human-readable intelligence summaries
+  # Higher temperature (0.5) allows more natural, varied language
+  narrative_synthesis_max_tokens: 1500
+  narrative_synthesis_temperature: 0.5
+  
+  # Relationship inference: Discovers implicit connections via LLM reasoning
+  # Low tokens for binary yes/no or simple relation type responses
+  relationship_inference_max_tokens: 200
+  relationship_inference_temperature: 0.3
+  
+  # Deduplication: Determines if two entities are the same
+  # Temperature 0.0 = completely deterministic for consistency
+  deduplication_max_tokens: 100
+  deduplication_temperature: 0.0
+  
+  # API credentials (None = use environment variables)
+  # SECURITY: Keep null here and set via .env file or environment variables
+  # Never commit API keys to version control
+  openrouter_api_key: null  # Set OPENROUTER_API_KEY in .env
+  openrouter_base_url: null  # Set OPENROUTER_BASE_URL in .env (optional, has default)
+  openrouter_model: null     # Set OPENROUTER_MODEL in .env to override default
+  cherry_api_key: null       # Set CHERRY_API_KEY in .env if using Cherry provider
+  lm_proxy_api_key: null     # Set LM_PROXY_API_KEY in .env if using LM proxy
+
+# Vector Database Configuration
+vector:
+  # url: Qdrant server address or ":memory:" for in-memory (non-persistent)
+  # For production, use disk-backed: "http://localhost:6333" or cloud instance
+  # In-memory is fast but data is lost on restart
+  url: ":memory:"
+  
+  # api_key: Authentication for remote Qdrant servers (null for local/memory)
+  api_key: null
+  
+  # embedding_dimension: Vector size (must match embedding model)
+  # 768 for BAAI/bge-base-en-v1.5, 384 for all-MiniLM, 1536 for OpenAI
+  embedding_dimension: 768
+  
+  # Collection names for organizing vectors
+  entities_collection: "entities"
+  relationships_collection: "relationships"
+  
+  # Search settings
+  # similarity_search_limit: Max results returned per similarity query
+  similarity_search_limit: 5
+  
+  # similarity_search_threshold: Minimum cosine similarity (0-1) for matches
+  # 0.7 = moderately similar, 0.85 = very similar, 0.5 = loosely related
+  similarity_search_threshold: 0.7
+  
+  # deduplication_threshold: Similarity score to consider entities duplicates
+  # Higher = stricter matching (0.85 = only merge very similar entities)
+  deduplication_threshold: 0.85
+  
+  # deduplication_limit: Max candidates to check per deduplication pass
+  # Lower = faster but may miss duplicates; higher = thorough but slower
+  deduplication_limit: 1000
+
+# Database Configuration
+database:
+  # db_path: Location for persistent DuckDB storage
+  # Relative paths are from project root, absolute paths work too
+  # Use ":memory:" for non-persistent in-memory database (testing only)
+  # Changed to intel.duckdb for Sandbox compatibility
+  db_path: "data/db/intel.duckdb"
+  
+  # connection_timeout: Seconds to wait for database lock/connection
+  connection_timeout: 30.0
+  
+  # wal_mode: Write-Ahead Logging for better concurrency and crash recovery
+  # Keep true for production, false only for debugging or read-only scenarios
+  wal_mode: true
+
+# Embedding Configuration
+embedding:
+  # device: Hardware for embedding computation
+  # "cuda" = GPU (fast, requires NVIDIA GPU with CUDA)
+  # "cpu" = CPU (slower but works everywhere)
+  # "mps" = Apple Silicon GPU (M1/M2 Macs)
+  device: "cuda"
+  
+  # general_model: Default embedding model for short texts (<512 tokens)
+  # BAAI/bge-base-en-v1.5 = 768-dim, excellent quality/speed balance
+  # Alternatives: "sentence-transformers/all-MiniLM-L6-v2" (384-dim, faster)
+  general_model: "BAAI/bge-base-en-v1.5"
+  
+  # long_context_model: Model for long documents (>512 tokens)
+  # nomic-embed supports up to 8192 tokens with strong performance
+  long_context_model: "nomic-ai/nomic-embed-text-v1.5"
+  
+  # batch_size: Number of texts to embed simultaneously
+  # Higher = faster on GPU, but uses more VRAM
+  # Reduce to 8-16 if getting CUDA out-of-memory errors
+  batch_size: 32
+  
+  # long_context_threshold: Token count to switch to long_context_model
+  # 512 is optimal for general_model capacity
+  long_context_threshold: 512
+
+# UI Configuration
+ui:
+  # flet_web_mode: Run UI as web app (true) or desktop app (false)
+  # Web mode allows remote access via browser
+  flet_web_mode: false
+  
+  # flet_port: Web server port (only used if flet_web_mode = true)
+  # Change if port 8550 is already in use
+  flet_port: 8550
+  
+  # flet_web_renderer: Rendering engine for web mode
+  # "html" = HTML-based (better compatibility)
+  # "canvaskit" = WebGL/Canvas (better performance, may have compatibility issues)
+  flet_web_renderer: "html"
+  
+  # Theme and appearance
+  # theme_mode: "dark", "light", or "system" (follows OS setting)
+  theme_mode: "dark"
+  
+  # primary_color: Hex color code for UI accent/highlights
+  primary_color: "#2196F3"
+  
+  # Dashboard settings
+  # logs_feed_enabled: Show live log stream in dashboard
+  logs_feed_enabled: true
+  
+  # auto_refresh_interval: Seconds between dashboard data refreshes
+  # Lower = more responsive but higher CPU usage
+  auto_refresh_interval: 5.0
+
+# Processing Configuration
+processing:
+  # Processing delays to avoid rate limits and manage system load
+  # semantic_profiler_delay: Seconds to wait between semantic profile generations
+  # Increase if hitting API rate limits, decrease for faster processing
+  semantic_profiler_delay: 0.3
+  
+  # graph_analysis_delay: Seconds to wait between graph analysis cycles
+  graph_analysis_delay: 0.2
+  
+  # Workflow settings
+  # auto_deduplication: Automatically merge duplicate entities during extraction
+  # Disable for faster processing or to manually review duplicates
+  auto_deduplication: true
+  
+  # auto_relationship_inference: Use LLM to discover implicit relationships
+  # Disable to save API costs or for faster extraction (only explicit relationships)
+  auto_relationship_inference: true
+  
+  # parallel_processing: Process multiple documents/tasks simultaneously
+  # WARNING: May exceed rate limits; keep false unless you have high API quotas
+  parallel_processing: false

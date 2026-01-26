@@ -1,0 +1,406 @@
+"""
+SemanticProfilerService for PyScrAI Forge.
+
+Generates semantic profiles per entity using LLM analysis.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import Dict, Any, List, Optional
+
+from forge.shared.core.event_bus import EventBus, EventPayload
+from forge.shared.core import events
+from forge.shared.infrastructure.llm.base import LLMProvider, RateLimitError
+from forge.shared.infrastructure.llm.rate_limiter import get_rate_limiter
+from forge.shared.config.prompts import render_prompt
+
+logger = logging.getLogger(__name__)
+
+
+class SemanticProfilerService:
+    """Service for generating semantic profiles of entities."""
+    
+    def __init__(
+        self,
+        event_bus: EventBus,
+        llm_provider: LLMProvider,
+        db_connection,  # DuckDB connection
+    ):
+        """Initialize the semantic profiler service.
+        
+        Args:
+            event_bus: Event bus for subscribing to events
+            llm_provider: LLM provider for profile generation
+            db_connection: DuckDB connection for querying entities/relationships
+        """
+        self.event_bus = event_bus
+        self.llm_provider = llm_provider
+        self.db_conn = db_connection
+        self.service_name = "SemanticProfilerService"
+        
+        # Cache profiles to avoid re-computation
+        self._profile_cache: Dict[str, Dict[str, Any]] = {}
+    
+    def update_db_connection(self, db_connection) -> None:
+        """Update the database connection (called when a project is opened)."""
+        self.db_conn = db_connection
+        
+    async def start(self):
+        """Start the service and subscribe to events."""
+        logger.info("Starting SemanticProfilerService")
+        
+        # Subscribe to entity merged and graph updated events
+        # Use TOPIC_GRAPH_UPDATED instead of TOPIC_RELATIONSHIP_FOUND to ensure
+        # entities are persisted to the database before generating profiles
+        await self.event_bus.subscribe(events.TOPIC_ENTITY_MERGED, self.handle_entity_merged)
+        await self.event_bus.subscribe(events.TOPIC_GRAPH_UPDATED, self.handle_graph_updated)
+        
+        logger.info("SemanticProfilerService started")
+    
+    async def handle_entity_merged(self, payload: EventPayload):
+        """Handle entity merged events by regenerating profile."""
+        kept_entity = payload.get("kept_entity")
+        
+        if kept_entity:
+            # Invalidate cache
+            if kept_entity in self._profile_cache:
+                del self._profile_cache[kept_entity]
+            
+            # Generate new profile
+            await self.generate_profile(kept_entity)
+    
+    async def handle_graph_updated(self, payload: EventPayload):
+        """Handle graph updated events by generating profiles for new entities.
+        
+        This is called after entities are persisted to the database, so we can
+        safely query them.
+        """
+        # Skip semantic profiling if flag is set (e.g., during session restore when profiles are loaded from DB)
+        if payload.get("skip_semantic_profiling", False):
+            logger.debug("Skipping semantic profiling (skip_semantic_profiling flag set)")
+            return
+        
+        graph_stats = payload.get("graph_stats", {})
+        nodes = graph_stats.get("nodes", [])
+        
+        # Extract unique entity IDs from the graph nodes
+        entity_ids = set()
+        for node in nodes:
+            entity_id = node.get("id")
+            if entity_id:
+                entity_ids.add(entity_id)
+        
+        # If no nodes in graph_stats (e.g., during session restore), query all entities from database
+        if not entity_ids and self.db_conn:
+            try:
+                results = self.db_conn.execute("SELECT id FROM entities").fetchall()
+                entity_ids = {row[0] for row in results}
+            except Exception as e:
+                logger.error(f"Error querying entities for profiling: {e}")
+        
+        # Generate profiles for all entities
+        # Process sequentially with rate limiting to avoid API rate limits
+        if entity_ids:
+            # Emit processing start event
+            await self.event_bus.publish(
+                events.TOPIC_INTELLIGENCE_PROCESSING_START,
+                events.create_intelligence_processing_event(
+                    stage="semantic_profiles",
+                    message="Generating semantic profiles...",
+                    total=len(entity_ids),
+                    current=0
+                )
+            )
+            
+            processed = 0
+            for entity_id in entity_ids:
+                if entity_id:
+                    try:
+                        await self.generate_profile(entity_id)
+                        processed += 1
+                        # Small delay between entities to avoid rate limits
+                        await asyncio.sleep(0.3)
+                    except Exception as e:
+                        logger.error(f"Failed to generate profile for {entity_id}: {e}")
+            
+            # Emit processing end event
+            await self.event_bus.publish(
+                events.TOPIC_INTELLIGENCE_PROCESSING_END,
+                events.create_intelligence_processing_event(
+                    stage="semantic_profiles",
+                    message="Semantic profiles complete",
+                    total=len(entity_ids),
+                    current=processed
+                )
+            )
+    
+    async def generate_profile(self, entity_id: str, max_retries: int = 3, retry_delay: float = 0.5) -> Optional[Dict[str, Any]]:
+        """Generate a semantic profile for an entity.
+        
+        Args:
+            entity_id: Entity ID to profile
+            max_retries: Maximum number of retries if entity is not found (for timing issues)
+            retry_delay: Initial delay between retries in seconds (exponential backoff)
+            
+        Returns:
+            Semantic profile dictionary or None if error
+        """
+        # Check cache
+        if entity_id in self._profile_cache:
+            return self._profile_cache[entity_id]
+        
+        # Check database for existing profile (skip LLM generation if exists)
+        if self.db_conn:
+            try:
+                result = self.db_conn.execute("""
+                    SELECT profile_json
+                    FROM semantic_profiles
+                    WHERE entity_id = ?
+                """, (entity_id,)).fetchone()
+                
+                if result:
+                    import json
+                    profile = json.loads(result[0])
+                    # Cache the loaded profile
+                    self._profile_cache[entity_id] = profile
+                    
+                    # Publish to workspace for UI display
+                    entity_info = self._get_entity_info(entity_id)
+                    if entity_info:
+                        await self.event_bus.publish(
+                            events.TOPIC_WORKSPACE_SCHEMA,
+                            events.create_workspace_schema_event({
+                                "type": "semantic_profile",
+                                "title": f"Profile: {entity_info['label']}",
+                                "props": profile
+                            })
+                        )
+                    
+                    logger.debug(f"Loaded semantic profile for {entity_id} from database")
+                    return profile
+            except Exception as e:
+                logger.debug(f"Error loading profile from database for {entity_id}: {e}")
+                # Continue to generate new profile if loading fails
+        
+        # Get entity information from database with retry logic for timing issues
+        entity_info = None
+        for attempt in range(max_retries):
+            entity_info = self._get_entity_info(entity_id)
+            if entity_info:
+                break
+            
+            if attempt < max_retries - 1:
+                # Entity not found yet, wait and retry (exponential backoff)
+                delay = retry_delay * (2 ** attempt)
+                logger.debug(f"Entity {entity_id} not found in database (attempt {attempt + 1}/{max_retries}), retrying in {delay:.2f}s...")
+                await asyncio.sleep(delay)
+        
+        if not entity_info:
+            logger.warning(f"Entity {entity_id} not found in database after {max_retries} attempts")
+            return None
+        
+        # Get relationships for this entity
+        relationships = self._get_entity_relationships(entity_id)
+        
+        # Build context for LLM
+        context = self._build_profile_context(entity_info, relationships)
+        
+        # Generate profile using LLM
+        profile = await self._generate_profile_with_llm(entity_id, context)
+        
+        if profile:
+            # Cache the profile
+            self._profile_cache[entity_id] = profile
+            
+            # Emit semantic profile event
+            await self.event_bus.publish(
+                events.TOPIC_SEMANTIC_PROFILE,
+                {
+                    "entity_id": entity_id,
+                    "profile": profile,
+                }
+            )
+            
+            # Also publish to workspace schema for UI visualization
+            await self.event_bus.publish(
+                events.TOPIC_WORKSPACE_SCHEMA,
+                events.create_workspace_schema_event({
+                    "type": "semantic_profile",
+                    "title": f"Profile: {entity_info['label']}",
+                    "props": profile
+                })
+            )
+            
+            # Emit Logs event
+            await self.event_bus.publish(
+                events.TOPIC_LOGS_EVENT,
+                events.create_logs_event(
+                    f"📊 Generated semantic profile for {entity_info['label']}",
+                    level="info"
+                )
+            )
+        
+        return profile
+    
+    def _get_entity_info(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Get entity information from database."""
+        if not self.db_conn:
+            return None
+        
+        try:
+            result = self.db_conn.execute("""
+                SELECT id, type, label, created_at, updated_at
+                FROM entities
+                WHERE id = ?
+            """, (entity_id,)).fetchone()
+            
+            if result:
+                return {
+                    "id": result[0],
+                    "type": result[1],
+                    "label": result[2],
+                    "created_at": result[3],
+                    "updated_at": result[4],
+                }
+        except Exception as e:
+            logger.error(f"Error fetching entity {entity_id}: {e}")
+        
+        return None
+    
+    def _get_entity_relationships(self, entity_id: str) -> List[Dict[str, Any]]:
+        """Get all relationships for an entity."""
+        if not self.db_conn:
+            return []
+        
+        try:
+            # Get outgoing relationships
+            outgoing = self.db_conn.execute("""
+                SELECT source, target, type, confidence
+                FROM relationships
+                WHERE source = ?
+                ORDER BY confidence DESC
+                LIMIT 20
+            """, (entity_id,)).fetchall()
+            
+            # Get incoming relationships
+            incoming = self.db_conn.execute("""
+                SELECT source, target, type, confidence
+                FROM relationships
+                WHERE target = ?
+                ORDER BY confidence DESC
+                LIMIT 20
+            """, (entity_id,)).fetchall()
+            
+            relationships = []
+            
+            for row in outgoing:
+                relationships.append({
+                    "source": row[0],
+                    "target": row[1],
+                    "type": row[2],
+                    "confidence": row[3],
+                    "direction": "outgoing"
+                })
+            
+            for row in incoming:
+                relationships.append({
+                    "source": row[0],
+                    "target": row[1],
+                    "type": row[2],
+                    "confidence": row[3],
+                    "direction": "incoming"
+                })
+            
+            return relationships
+            
+        except Exception as e:
+            logger.error(f"Error fetching relationships for {entity_id}: {e}")
+            return []
+    
+    def _build_profile_context(
+        self,
+        entity_info: Dict[str, Any],
+        relationships: List[Dict[str, Any]]
+    ) -> str:
+        """Build context string for LLM profiling."""
+        context = f"""Entity Information:
+- ID: {entity_info['id']}
+- Type: {entity_info['type']}
+- Label: {entity_info['label']}
+
+Relationships ({len(relationships)} total):
+"""
+        
+        for rel in relationships[:10]:  # Show top 10
+            direction = "→" if rel["direction"] == "outgoing" else "←"
+            context += f"- {rel['source']} {direction} {rel['type']} {direction} {rel['target']} (confidence: {rel['confidence']:.2f})\n"
+        
+        return context
+    
+    async def _generate_profile_with_llm(
+        self,
+        entity_id: str,
+        context: str
+    ) -> Optional[Dict[str, Any]]:
+        """Generate semantic profile using LLM.
+        
+        Args:
+            entity_id: Entity ID
+            context: Context information
+            
+        Returns:
+            Profile dictionary with summary, attributes, etc.
+        """
+        # Render prompt using Jinja2 template
+        prompt = render_prompt("semantic_profiler", context=context)
+        
+        content = ""
+        rate_limiter = get_rate_limiter()
+        try:
+            # Prefer default_model over first available model
+            model = self.llm_provider.default_model
+            if not model:
+                models = await self.llm_provider.list_models()
+                model = models[0].id if models else ""
+            if not model:
+                logger.error(f"{self.service_name}: No model available for LLM call")
+                return None
+            logger.info(f"{self.service_name}: Using model '{model}' for semantic profiling")
+            
+            # Use rate limiter for LLM call
+            # Pass the function itself, not the coroutine, so it can be called on each retry
+            async def _make_llm_call():
+                return await self.llm_provider.complete(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    max_tokens=500,
+                    temperature=0.3,
+                )
+            
+            response = await rate_limiter.execute_with_retry(
+                _make_llm_call,  # Pass function, not coroutine
+                is_rate_limit_error=lambda e: isinstance(e, RateLimitError) or "rate limit" in str(e).lower()
+            )
+            
+            # Parse JSON response
+            content = ""
+            if "choices" in response and response["choices"]:
+                content = response["choices"][0].get("message", {}).get("content", "")
+            profile_data = json.loads(content.strip())
+            
+            # Add entity_id to profile
+            profile_data["entity_id"] = entity_id
+            
+            logger.debug(f"Generated profile for {entity_id}")
+            return profile_data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.debug(f"Response content: {content if content else 'N/A'}")
+            return None
+        except Exception as e:
+            logger.error(f"Error generating profile with LLM: {e}")
+            return None

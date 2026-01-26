@@ -1,0 +1,47 @@
+# User-Level Configuration for PyScrAI Forge
+# This file contains your personal preferences and settings that apply
+# across all projects. Values here override system defaults but can be
+# overridden by project-specific and environment variable settings.
+
+# Uncomment and modify the sections you want to customize:
+
+# llm:
+#   # Increase rate limits if you have a paid API plan
+#   rate_limit_max_concurrent: 3
+#   rate_limit_min_delay: 1.0
+#   
+#   # Your preferred default models
+#   openrouter_model: "anthropic/claude-3-haiku-20240307"
+#   
+#   # Adjust temperatures for your use case
+#   narrative_synthesis_temperature: 0.7
+
+# vector:
+#   # Use persistent Qdrant instance
+#   url: "http://localhost:6333"
+#   api_key: "your-qdrant-api-key"
+
+# embedding:
+#   # Use CPU if no GPU available
+#   device: "cpu"
+#   
+#   # Smaller batch size for limited memory
+#   batch_size: 16
+
+# ui:
+#   # Light theme preference
+#   theme_mode: "light"
+#   
+#   # Custom port
+#   flet_port: 8080
+#   
+#   # Faster refresh for development
+#   auto_refresh_interval: 2.0
+
+# processing:
+#   # Enable parallel processing for faster ingestion
+#   parallel_processing: true
+#   
+#   # Reduce delays for faster processing
+#   semantic_profiler_delay: 0.1
+#   graph_analysis_delay: 0.1
