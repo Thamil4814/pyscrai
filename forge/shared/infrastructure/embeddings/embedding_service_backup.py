@@ -12,31 +12,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Dict, List, Any, Optional
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 
 from forge.shared.core.event_bus import EventBus, EventPayload
 from forge.shared.core import events
 
 logger = logging.getLogger(__name__)
-
-
-class LRUCache(OrderedDict):
-    """Simple LRU Cache implementation using OrderedDict."""
-    def __init__(self, maxsize=128, *args, **kwds):
-        self.maxsize = maxsize
-        super().__init__(*args, **kwds)
-
-    def __getitem__(self, key):
-        value = super().__getitem__(key)
-        self.move_to_end(key)
-        return value
-
-    def __setitem__(self, key, value):
-        if key in self:
-            self.move_to_end(key)
-        super().__setitem__(key, value)
-        if len(self) > self.maxsize:
-            self.popitem(last=False)
 
 
 class EmbeddingService:
@@ -50,7 +31,6 @@ class EmbeddingService:
         long_context_model: str = "nomic-ai/nomic-embed-text-v1.5",
         batch_size: int = 32,
         long_context_threshold: int = 512,
-        cache_size: int = 1000,
     ):
         """Initialize the embedding service.
         
@@ -61,7 +41,6 @@ class EmbeddingService:
             long_context_model: Model for long context embeddings
             batch_size: Batch size for processing
             long_context_threshold: Token threshold for switching to long context model
-            cache_size: Maximum number of embeddings to cache
         """
         self.event_bus = event_bus
         self.device = device
@@ -69,14 +48,13 @@ class EmbeddingService:
         self.long_context_model_name = long_context_model
         self.batch_size = batch_size
         self.long_context_threshold = long_context_threshold
-        self.cache_size = cache_size
         
         # Models will be lazy-loaded
         self._general_model = None
         self._long_context_model = None
         
         # Cache for embeddings to avoid re-computation
-        self._embedding_cache: Dict[str, List[float]] = LRUCache(maxsize=self.cache_size)
+        self._embedding_cache: Dict[str, List[float]] = {}
         
         # Batch queue for efficient processing
         self._entity_batch: List[Dict[str, Any]] = []

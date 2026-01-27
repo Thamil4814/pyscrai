@@ -64,6 +64,11 @@ class NarrativeSynthesisService:
             logger.info(f"{self.service_name}: ⏭️ Skipping narrative generation for None doc_id (session restore)")
             return
         
+        # Skip if this is not a complete document update (debounce mechanism)
+        if not payload.get("is_complete", False):
+            logger.info(f"{self.service_name}: ⏭️ Skipping narrative generation (document processing not complete)")
+            return
+        
         logger.info(f"{self.service_name}: ✅ Activated - generating narrative for doc_id={doc_id}")
         
         # Emit processing start event

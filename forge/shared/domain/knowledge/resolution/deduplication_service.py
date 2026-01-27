@@ -78,6 +78,11 @@ class DeduplicationService:
             logger.info(f"{self.service_name}: ⏭️ Skipping deduplication (skip_deduplication flag set in payload)")
             return
         
+        # Skip if this is not a complete document update (debounce mechanism)
+        if not payload.get("is_complete", False):
+            logger.info(f"{self.service_name}: ⏭️ Skipping deduplication (document processing not complete)")
+            return
+        
         logger.info(f"{self.service_name}: ✅ Activated - checking for duplicate entities")
         
         # Find potential duplicates from Qdrant

@@ -82,11 +82,18 @@ def create_relationship_found_event(
     return event
 
 
-def create_graph_updated_event(doc_id: str, graph_stats: Dict[str, Any]) -> EventPayload:
-    """Create a graph updated event."""
+def create_graph_updated_event(doc_id: str, graph_stats: Dict[str, Any], is_complete: bool = False) -> EventPayload:
+    """Create a graph updated event.
+    
+    Args:
+        doc_id: Document ID
+        graph_stats: Graph statistics and data
+        is_complete: Whether this is the complete document processing (after both entities and relationships)
+    """
     return {
         "doc_id": doc_id,
         "graph_stats": graph_stats,
+        "is_complete": is_complete,
     }
 
 

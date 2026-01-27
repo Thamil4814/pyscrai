@@ -46,9 +46,6 @@ class SessionManager:
         """
         logger.info("♻️ Restoring session from database...")
         await self._push_log("♻️ Starting Session Restore...", "info")
-        
-        # Get current running loop for offloading blocking calls
-        loop = asyncio.get_running_loop()
 
         # Publish session restore start event
         await self.event_bus.publish("session.restore.start", {})
@@ -61,13 +58,18 @@ class SessionManager:
         # status from the previous session as 'completed' to prevent them from
         # displaying as still processing in the UI
         try:
-            updated_count = await loop.run_in_executor(
-                None, 
-                self.persistence.clean_stale_processing_entries
-            )
-            if updated_count > 0:
-                logger.info(f"Updated {updated_count} stale processing entries to 'completed'")
-                await self._push_log(f"Updated {updated_count} document entries from previous session", "info")
+            if self.persistence.conn:
+                result = self.persistence.conn.execute(
+                    """
+                    UPDATE document_processing
+                    SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+                    WHERE status = 'processing'
+                    """
+                )
+                updated_count = result.rowcount
+                if updated_count > 0:
+                    logger.info(f"Updated {updated_count} stale processing entries to 'completed'")
+                    await self._push_log(f"Updated {updated_count} document entries from previous session", "info")
         except Exception as e:
             logger.error(f"Error cleaning up stale processing entries: {e}")
             await self._push_log(f"Warning: Could not clean up processing entries: {e}", "warning")
@@ -85,7 +87,7 @@ class SessionManager:
         await self.qdrant.clear_collections()
 
         # 4. Re-index Entities
-        entities = await loop.run_in_executor(None, self.persistence.get_all_entities)
+        entities = self.persistence.get_all_entities()
         if entities:
             msg = f"Re-indexing {len(entities)} entities into Vector Store..."
             logger.info(msg)
@@ -129,7 +131,7 @@ class SessionManager:
             await self._push_log("No entities found to re-index.", "warning")
 
         # 5. Re-index Relationships
-        relationships = await loop.run_in_executor(None, self.persistence.get_all_relationships)
+        relationships = self.persistence.get_all_relationships()
         if relationships:
             msg = f"Re-indexing {len(relationships)} relationships into Vector Store..."
             logger.info(msg)
@@ -174,13 +176,12 @@ class SessionManager:
             await self._push_log("No relationships found to re-index.", "warning")
         
         # 6. Load semantic profiles from database and publish to workspace
-        profiles = await loop.run_in_executor(None, self.persistence.get_all_semantic_profiles)
+        profiles = self.persistence.get_all_semantic_profiles()
         if profiles:
             logger.info(f"Loading {len(profiles)} semantic profiles from database...")
             # Get all entities once (avoid O(n*m) complexity)
-            # Re-use already fetched entities if possible, but safe to fetch again async
-            entities_for_map = await loop.run_in_executor(None, self.persistence.get_all_entities)
-            entity_map = {e["id"]: e for e in entities_for_map}  # Create lookup map
+            entities = self.persistence.get_all_entities()
+            entity_map = {e["id"]: e for e in entities}  # Create lookup map
             
             for profile in profiles:
                 entity_id = profile.get("entity_id")
@@ -201,7 +202,7 @@ class SessionManager:
             await self._push_log("No semantic profiles found in database.", "info")
         
         # 7. Load narratives from database and publish to workspace
-        narratives = await loop.run_in_executor(None, self.persistence.get_all_narratives)
+        narratives = self.persistence.get_all_narratives()
         if narratives:
             logger.info(f"Loading {len(narratives)} narratives from database...")
             for narrative_data in narratives:
@@ -221,27 +222,30 @@ class SessionManager:
             await self._push_log(f"Loaded {len(narratives)} narratives from database.", "info")
         
         # 8. Load entity cards from database and publish to workspace
-        # Run DB calls in executor (entities and relationship counts)
-        # Using a single query to get counts for all entities to avoid N+1 problem
-        entities = await loop.run_in_executor(None, self.persistence.get_all_entities)
-        counts = await loop.run_in_executor(None, self.persistence.get_entity_relationship_counts)
-        
+        entities = self.persistence.get_all_entities()
         if entities and self.persistence.conn:
             logger.info(f"Loading {len(entities)} entity cards from database...")
             
             for entity_data in entities:
-                relationship_count = counts.get(entity_data["id"], 0)
+                # Get relationship count for this entity
+                    relationship_count = 0
+                    if self.persistence.conn:
+                        result = self.persistence.conn.execute("""
+                            SELECT COUNT(*) FROM relationships 
+                            WHERE source = ? OR target = ?
+                        """, (entity_data["id"], entity_data["id"])).fetchone()
+                        relationship_count = result[0] if result else 0
                 
                 # Publish entity card ready event
-                await self.event_bus.publish(
-                    events.TOPIC_ENTITY_CARD_READY,
-                    {
-                        "entity_id": entity_data["id"],
-                        "entity_type": entity_data["type"] or "Unknown",
-                        "label": entity_data["label"] or entity_data["id"],
-                        "relationship_count": relationship_count
-                    }
-                )
+                    await self.event_bus.publish(
+                        events.TOPIC_ENTITY_CARD_READY,
+                        {
+                            "entity_id": entity_data["id"],
+                            "entity_type": entity_data["type"] or "Unknown",
+                            "label": entity_data["label"] or entity_data["id"],
+                            "relationship_count": relationship_count
+                        }
+                    )
             
             await self._push_log(f"Loaded {len(entities)} entity cards from database.", "info")
         

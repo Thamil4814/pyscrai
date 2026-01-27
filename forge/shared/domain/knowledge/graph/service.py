@@ -21,6 +21,8 @@ class GraphAnalysisService:
         # Fallback in-memory graph structure (used only if db_connection is None)
         self._nodes: Dict[str, Dict[str, Any]] = {}
         self._edges: List[Dict[str, Any]] = []
+        # Document completion tracking for debouncing
+        self._document_states: Dict[str, Dict[str, bool]] = {}  # doc_id -> {entities_extracted: bool, relationships_found: bool}
     
     def update_db_connection(self, db_connection):
         """Update the database connection after initialization."""
@@ -77,11 +79,18 @@ class GraphAnalysisService:
             "edges": edges,
         }
 
+        # Track document state
+        if doc_id not in self._document_states:
+            self._document_states[doc_id] = {"entities_extracted": False, "relationships_found": False}
+        self._document_states[doc_id]["entities_extracted"] = True
+        
+        # Emit intermediate update (entities only) - downstream services should ignore this for analysis
         await self.event_bus.publish(
             events.TOPIC_GRAPH_UPDATED,
             events.create_graph_updated_event(
                 doc_id=doc_id,
                 graph_stats=graph_stats,
+                is_complete=False  # Mark as incomplete - only entities processed
             )
         )
         logger.info(f"GraphAnalysisService: Published GRAPH_UPDATED event (entities only update)")
@@ -230,12 +239,28 @@ class GraphAnalysisService:
             "edges": edges,
         }
 
+        # Track document state
+        if doc_id not in self._document_states:
+            self._document_states[doc_id] = {"entities_extracted": False, "relationships_found": False}
+        self._document_states[doc_id]["relationships_found"] = True
+        
+        # Check if document processing is complete
+        is_complete = (
+            self._document_states[doc_id]["entities_extracted"] and 
+            self._document_states[doc_id]["relationships_found"]
+        )
+        
         await self.event_bus.publish(
             events.TOPIC_GRAPH_UPDATED,
             events.create_graph_updated_event(
                 doc_id=doc_id,
                 graph_stats=graph_stats,
+                is_complete=is_complete  # Mark as complete only when both entities and relationships are processed
             )
         )
         
-        logger.info(f"GraphAnalysisService: Published GRAPH_UPDATED event ({len(nodes)} nodes, {len(edges)} edges)")
+        # Clean up tracking for this document
+        if is_complete and doc_id in self._document_states:
+            del self._document_states[doc_id]
+        
+        logger.info(f"GraphAnalysisService: Published GRAPH_UPDATED event ({len(nodes)} nodes, {len(edges)} edges, complete={is_complete})")

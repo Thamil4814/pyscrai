@@ -85,6 +85,11 @@ class SemanticProfilerService:
             logger.info("SemanticProfilerService: ⏭️ Skipping semantic profiling (skip_semantic_profiling flag set in payload)")
             return
         
+        # Skip if this is not a complete document update (debounce mechanism)
+        if not payload.get("is_complete", False):
+            logger.info("SemanticProfilerService: ⏭️ Skipping semantic profiling (document processing not complete)")
+            return
+        
         logger.info("SemanticProfilerService: ✅ Activated - generating semantic profiles")
         
         graph_stats = payload.get("graph_stats", {})

@@ -97,51 +97,6 @@ class DuckDBPersistenceService:
             self.handle_narrative_generated
         )
 
-    def clean_stale_processing_entries(self) -> int:
-        """Clean up stale processing entries from previous sessions."""
-        if not self.conn:
-            return 0
-        try:
-            result = self.conn.execute(
-                """
-                UPDATE document_processing
-                SET status = 'completed', completed_at = CURRENT_TIMESTAMP
-                WHERE status = 'processing'
-                """
-            )
-            # Note: rowcount availability depends on DuckDB version/driver
-            if hasattr(result, 'rowcount') and result.rowcount != -1:
-                return result.rowcount
-            # Fallback if rowcount is not available (though execute usually returns it)
-            return 0
-        except Exception as e:
-            logger = __import__("logging").getLogger(__name__)
-            logger.error(f"Error cleaning up stale processing entries: {e}")
-            return 0
-
-    def get_entity_relationship_counts(self) -> Dict[str, int]:
-        """Get relationship counts for all entities."""
-        if not self.conn:
-            return {}
-        
-        try:
-            # Query to count relationships for each entity (as source or target)
-            result = self.conn.execute("""
-                SELECT entity_id, COUNT(*) 
-                FROM (
-                    SELECT source as entity_id FROM relationships
-                    UNION ALL
-                    SELECT target as entity_id FROM relationships
-                ) 
-                GROUP BY entity_id
-            """).fetchall()
-            
-            return {row[0]: row[1] for row in result}
-        except Exception as e:
-            logger = __import__("logging").getLogger(__name__)
-            logger.error(f"Error getting relationship counts: {e}")
-            return {}
-
     async def handle_relationship_found(self, payload: EventPayload):
         """Persist extracted relationships to main database immediately."""
         if not self.conn:

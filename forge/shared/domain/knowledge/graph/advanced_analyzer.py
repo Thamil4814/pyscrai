@@ -63,6 +63,12 @@ class AdvancedGraphAnalysisService:
     async def handle_graph_updated(self, payload: EventPayload):
         """Handle graph updated events by running analytics."""
         logger.debug("AdvancedGraphAnalysisService: Received GRAPH_UPDATED event")
+        
+        # Skip if this is not a complete document update (debounce mechanism)
+        if not payload.get("is_complete", False):
+            logger.info("AdvancedGraphAnalysisService: ⏭️ Skipping analytics (document processing not complete)")
+            return
+        
         logger.info("AdvancedGraphAnalysisService: ✅ Activated - running graph analytics")
         
         doc_id = payload.get("doc_id")
