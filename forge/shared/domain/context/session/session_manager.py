@@ -46,7 +46,7 @@ class SessionManager:
         """
         logger.info("♻️ Restoring session from database...")
         await self._push_log("♻️ Starting Session Restore...", "info")
-        
+
         # Get current running loop for offloading blocking calls
         loop = asyncio.get_running_loop()
 
@@ -61,6 +61,13 @@ class SessionManager:
         # status from the previous session as 'completed' to prevent them from
         # displaying as still processing in the UI
         try:
+            updated_count = await loop.run_in_executor(
+                None,
+                self.persistence.clean_stale_processing_entries
+            )
+            if updated_count > 0:
+                logger.info(f"Updated {updated_count} stale processing entries to 'completed'")
+                await self._push_log(f"Updated {updated_count} document entries from previous session", "info")
             updated_count = await loop.run_in_executor(
                 None, 
                 self.persistence.clean_stale_processing_entries
@@ -85,6 +92,7 @@ class SessionManager:
         await self.qdrant.clear_collections()
 
         # 4. Re-index Entities
+        entities = await loop.run_in_executor(None, self.persistence.get_all_entities)
         entities = await loop.run_in_executor(None, self.persistence.get_all_entities)
         if entities:
             msg = f"Re-indexing {len(entities)} entities into Vector Store..."
@@ -129,6 +137,7 @@ class SessionManager:
             await self._push_log("No entities found to re-index.", "warning")
 
         # 5. Re-index Relationships
+        relationships = await loop.run_in_executor(None, self.persistence.get_all_relationships)
         relationships = await loop.run_in_executor(None, self.persistence.get_all_relationships)
         if relationships:
             msg = f"Re-indexing {len(relationships)} relationships into Vector Store..."
@@ -175,9 +184,13 @@ class SessionManager:
         
         # 6. Load semantic profiles from database and publish to workspace
         profiles = await loop.run_in_executor(None, self.persistence.get_all_semantic_profiles)
+        profiles = await loop.run_in_executor(None, self.persistence.get_all_semantic_profiles)
         if profiles:
             logger.info(f"Loading {len(profiles)} semantic profiles from database...")
             # Get all entities once (avoid O(n*m) complexity)
+            # Re-use already fetched entities if possible, but safe to fetch again async
+            entities_for_map = await loop.run_in_executor(None, self.persistence.get_all_entities)
+            entity_map = {e["id"]: e for e in entities_for_map}  # Create lookup map
             # Re-use already fetched entities if possible, but safe to fetch again async
             entities_for_map = await loop.run_in_executor(None, self.persistence.get_all_entities)
             entity_map = {e["id"]: e for e in entities_for_map}  # Create lookup map
@@ -202,6 +215,7 @@ class SessionManager:
         
         # 7. Load narratives from database and publish to workspace
         narratives = await loop.run_in_executor(None, self.persistence.get_all_narratives)
+        narratives = await loop.run_in_executor(None, self.persistence.get_all_narratives)
         if narratives:
             logger.info(f"Loading {len(narratives)} narratives from database...")
             for narrative_data in narratives:
@@ -225,7 +239,7 @@ class SessionManager:
         # Using a single query to get counts for all entities to avoid N+1 problem
         entities = await loop.run_in_executor(None, self.persistence.get_all_entities)
         counts = await loop.run_in_executor(None, self.persistence.get_entity_relationship_counts)
-        
+
         if entities and self.persistence.conn:
             logger.info(f"Loading {len(entities)} entity cards from database...")
             

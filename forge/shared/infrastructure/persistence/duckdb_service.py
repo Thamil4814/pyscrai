@@ -123,19 +123,19 @@ class DuckDBPersistenceService:
         """Get relationship counts for all entities."""
         if not self.conn:
             return {}
-        
+
         try:
             # Query to count relationships for each entity (as source or target)
             result = self.conn.execute("""
-                SELECT entity_id, COUNT(*) 
+                SELECT entity_id, COUNT(*)
                 FROM (
                     SELECT source as entity_id FROM relationships
                     UNION ALL
                     SELECT target as entity_id FROM relationships
-                ) 
+                )
                 GROUP BY entity_id
             """).fetchall()
-            
+
             return {row[0]: row[1] for row in result}
         except Exception as e:
             logger = __import__("logging").getLogger(__name__)
