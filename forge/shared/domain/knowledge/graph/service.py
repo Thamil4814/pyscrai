@@ -28,11 +28,63 @@ class GraphAnalysisService:
         logger.info("GraphAnalysisService: Database connection updated")
     
     async def start(self):
-        """Start the service by subscribing to relationship events."""
+        """Start the service by subscribing to entity and relationship events."""
+        # Subscribe to entity extraction events
+        await self.event_bus.subscribe(
+            events.TOPIC_ENTITY_EXTRACTED,
+            self.handle_entity_extracted
+        )
+        # Subscribe to relationship events
         await self.event_bus.subscribe(
             events.TOPIC_RELATIONSHIP_FOUND, 
             self.handle_relationship_found
         )
+
+    async def handle_entity_extracted(self, payload: EventPayload):
+        """Process extracted entities and update the graph."""
+        doc_id = payload.get("doc_id", "unknown")
+        entities = payload.get("entities", [])
+
+        logger.debug(f"GraphAnalysisService: Received ENTITY_EXTRACTED event for doc {doc_id}")
+        logger.info(f"GraphAnalysisService: ✅ Activated - processing {len(entities)} entities")
+
+        # Small delay for database persistence service to finish writing entities
+        await asyncio.sleep(0.5)
+
+        if self.db_conn:
+            graph_data = self._query_graph_from_db(doc_id)
+            nodes = graph_data["nodes"]
+            edges = graph_data["edges"]
+        else:
+            # Fallback in-memory update
+            for entity in entities:
+                e_id = entity.get("text") # Assuming text as ID for in-memory simple version
+                if e_id and e_id not in self._nodes:
+                    self._nodes[e_id] = {
+                        "id": e_id,
+                        "type": entity.get("type", "Unknown"),
+                        "label": e_id,
+                        "attributes": entity.get("attributes", {})
+                    }
+            nodes = list(self._nodes.values())
+            edges = self._edges
+
+        # Emit graph update to trigger Profiler/Inference
+        graph_stats = {
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+        await self.event_bus.publish(
+            events.TOPIC_GRAPH_UPDATED,
+            events.create_graph_updated_event(
+                doc_id=doc_id,
+                graph_stats=graph_stats,
+            )
+        )
+        logger.info(f"GraphAnalysisService: Published GRAPH_UPDATED event (entities only update)")
     
     def _query_graph_from_db(self, doc_id: Optional[str] = None) -> Dict[str, Any]:
         """Query the database for graph data.
@@ -51,19 +103,19 @@ class GraphAnalysisService:
             }
         
         try:
-            # Query entities (nodes)
+            # Query entities (nodes)``
             if doc_id and doc_id != "unknown":
                 # Filter by document if specified
                 entities_query = """
-                    SELECT DISTINCT e.id, e.type, e.label, e.attributes
+                    SELECT DISTINCT e.id, e.type, e.label, e.attributes_json
                     FROM entities e
-                    JOIN relationships r ON (e.id = r.source_id OR e.id = r.target_id)
+                    JOIN relationships r ON (e.id = r.source OR e.id = r.target)
                     WHERE r.doc_id = ?
                 """
                 entity_results = self.db_conn.execute(entities_query, [doc_id]).fetchall()
             else:
                 # Get all entities
-                entities_query = "SELECT id, type, label, attributes FROM entities"
+                entities_query = "SELECT id, type, label, attributes_json FROM entities"
                 entity_results = self.db_conn.execute(entities_query).fetchall()
             
             nodes = []
@@ -78,13 +130,13 @@ class GraphAnalysisService:
             # Query relationships (edges)
             if doc_id and doc_id != "unknown":
                 relationships_query = """
-                    SELECT source_id, target_id, type, confidence, doc_id, attributes
+                    SELECT source, target, type, confidence, doc_id
                     FROM relationships
                     WHERE doc_id = ?
                 """
                 relationship_results = self.db_conn.execute(relationships_query, [doc_id]).fetchall()
             else:
-                relationships_query = "SELECT source_id, target_id, type, confidence, doc_id, attributes FROM relationships"
+                relationships_query = "SELECT source, target, type, confidence, doc_id FROM relationships"
                 relationship_results = self.db_conn.execute(relationships_query).fetchall()
             
             edges = []
@@ -93,9 +145,8 @@ class GraphAnalysisService:
                     "source": row[0],
                     "target": row[1],
                     "type": row[2],
-                    "confidence": row[3] if len(row) > 3 else 1.0,
+                    "confidence": float(row[3]) if row[3] else 1.0,
                     "doc_id": row[4] if len(row) > 4 else "unknown",
-                    "attributes": row[5] if len(row) > 5 else {},
                 })
             
             logger.info(f"GraphAnalysisService: Queried {len(nodes)} nodes and {len(edges)} edges from database")

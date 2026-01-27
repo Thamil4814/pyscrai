@@ -45,6 +45,13 @@ class DuckDBPersistenceService:
         self._create_schema()
         logger = __import__("logging").getLogger(__name__)
         logger.info(f"Database initialized: {self.db_path}")
+
+        # Subscribe to entity extraction - AUTO-SAVE raw entities immediately
+        await self.event_bus.subscribe(
+            events.TOPIC_ENTITY_EXTRACTED,
+            self.handle_entity_extracted
+        )
+
         # Subscribe to graph updates - AUTO-SAVE to main database
         await self.event_bus.subscribe(
             events.TOPIC_GRAPH_UPDATED,
@@ -65,6 +72,61 @@ class DuckDBPersistenceService:
             events.TOPIC_NARRATIVE_GENERATED,
             self.handle_narrative_generated
         )
+    async def handle_entity_extracted(self, payload: EventPayload):
+        """Persist extracted entities to main database immediately."""
+        if not self.conn:
+            return
+
+        entities = payload.get("entities", [])
+        if not entities:
+            return
+
+        import json
+
+        # Use a transaction for batch insertion
+        try:
+            entity_ids_inserted = []
+
+            for entity in entities:
+                entity_type = entity.get("type", "UNKNOWN")
+                label = entity.get("text", "Unknown")
+
+                # Generate deterministic ID consistent with QdrantService
+                entity_id = f"{entity_type}:{label}"
+
+                attributes = entity.get("attributes", {})
+                attributes_json = json.dumps(attributes) if attributes else "{}"
+
+                # Check if entity already exists
+                existing = self.conn.execute(
+                    "SELECT id FROM entities WHERE id = ?", 
+                    (entity_id,)
+                ).fetchone()
+
+                if existing:
+                    self.conn.execute("""
+                        UPDATE entities 
+                        SET type = ?, label = ?, attributes_json = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    """, (entity_type, label, attributes_json, entity_id))
+                else:
+                    self.conn.execute("""
+                        INSERT INTO entities (id, type, label, attributes_json)
+                        VALUES (?, ?, ?, ?)
+                    """, (entity_id, entity_type, label, attributes_json))
+
+                entity_ids_inserted.append(entity_id)
+
+            self.conn.commit()
+            logger.info(f"Persisted {len(entity_ids_inserted)} raw entities to database")
+
+        except Exception as e:
+            logger.error(f"Error persisting entities: {e}")
+            if self.conn:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
     
     def _create_schema(self):
         """Create tables for entities and relationships in main database."""
