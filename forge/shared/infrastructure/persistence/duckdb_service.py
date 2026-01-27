@@ -52,11 +52,18 @@ class DuckDBPersistenceService:
             self.handle_entity_extracted
         )
 
+        # Subscribe to relationship extraction - AUTO-SAVE raw relationships immediately
+        await self.event_bus.subscribe(
+            events.TOPIC_RELATIONSHIP_FOUND,
+            self.handle_relationship_found
+        )
+
         # Subscribe to graph updates - AUTO-SAVE to main database
         await self.event_bus.subscribe(
             events.TOPIC_GRAPH_UPDATED,
             self.handle_graph_updated
         )
+
         # Subscribe to workspace schema events - AUTO-SAVE to main database
         await self.event_bus.subscribe(
             events.TOPIC_WORKSPACE_SCHEMA,
@@ -72,6 +79,97 @@ class DuckDBPersistenceService:
             events.TOPIC_NARRATIVE_GENERATED,
             self.handle_narrative_generated
         )
+
+    # Removed duplicate handle_relationship_found and unreachable except clause
+        # Subscribe to workspace schema events - AUTO-SAVE to main database
+        await self.event_bus.subscribe(
+            events.TOPIC_WORKSPACE_SCHEMA,
+            self.handle_workspace_schema
+        )
+        # Subscribe to semantic profile events - AUTO-SAVE to main database
+        await self.event_bus.subscribe(
+            events.TOPIC_SEMANTIC_PROFILE,
+            self.handle_semantic_profile
+        )
+        # Subscribe to narrative events - AUTO-SAVE to main database
+        await self.event_bus.subscribe(
+            events.TOPIC_NARRATIVE_GENERATED,
+            self.handle_narrative_generated
+        )
+
+    async def handle_relationship_found(self, payload: EventPayload):
+        """Persist extracted relationships to main database immediately."""
+        if not self.conn:
+            return
+
+        logger = logging.getLogger(__name__)
+        relationships = payload.get("relationships", [])
+        doc_id = payload.get("doc_id")
+        if not relationships:
+            logger.debug(f"No relationships found in payload for doc_id={doc_id}")
+            return
+
+        try:
+            count = 0
+            for rel in relationships:
+                source_text = rel.get("source")
+                target_text = rel.get("target")
+                source_type = rel.get("source_type", "UNKNOWN")
+                target_type = rel.get("target_type", "UNKNOWN")
+                rel_type = rel.get("relation_type", "RELATED_TO")
+                confidence = rel.get("confidence", 0.5)
+
+                if not source_text or not target_text or not rel_type:
+                    logger.warning(f"Skipping relationship: missing source/target/type. rel={rel}")
+                    continue
+
+                # Construct entity IDs matching the format used in handle_entity_extracted
+                # Entity IDs are stored as "TYPE:label" (e.g., "PERSON:Vladimir Putin")
+                source_id = f"{source_type}:{source_text}"
+                target_id = f"{target_type}:{target_text}"
+
+                source_exists = self.conn.execute("SELECT 1 FROM entities WHERE id = ?", (source_id,)).fetchone()
+                target_exists = self.conn.execute("SELECT 1 FROM entities WHERE id = ?", (target_id,)).fetchone()
+
+                if not source_exists:
+                    logger.warning(f"Skipping relationship: source entity '{source_id}' does not exist. rel={rel}")
+                    continue
+
+                if not target_exists:
+                    logger.warning(f"Skipping relationship: target entity '{target_id}' does not exist. rel={rel}")
+                    continue
+
+                existing = self.conn.execute("""
+                    SELECT id FROM relationships 
+                    WHERE source = ? AND target = ? AND type = ? AND doc_id = ?
+                """, (source_id, target_id, rel_type, doc_id)).fetchone()
+
+                if existing:
+                    logger.debug(f"Relationship already exists: source={source_id}, target={target_id}, type={rel_type}, doc_id={doc_id}")
+                    continue
+
+                self.conn.execute("""
+                    INSERT INTO relationships (source, target, type, confidence, doc_id)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (source_id, target_id, rel_type, confidence, doc_id))
+                logger.info(f"Inserted relationship: source={source_id}, target={target_id}, type={rel_type}, doc_id={doc_id}, confidence={confidence}")
+                count += 1
+
+            self.conn.commit()
+            if count > 0:
+                logger.info(f"Persisted {count} raw relationships to database for {doc_id}")
+            else:
+                logger.info(f"No new relationships persisted for doc_id={doc_id}")
+
+        except Exception as e:
+            logger = __import__("logging").getLogger(__name__)
+            logger.error(f"Error persisting relationships: {e}")
+            if self.conn:
+                try:
+                    self.conn.rollback()
+                except Exception:
+                    pass
+
     async def handle_entity_extracted(self, payload: EventPayload):
         """Persist extracted entities to main database immediately."""
         if not self.conn:
@@ -82,7 +180,6 @@ class DuckDBPersistenceService:
             return
 
         import json
-
         # Use a transaction for batch insertion
         try:
             entity_ids_inserted = []

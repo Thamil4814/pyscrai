@@ -103,20 +103,9 @@ class GraphAnalysisService:
             }
         
         try:
-            # Query entities (nodes)``
-            if doc_id and doc_id != "unknown":
-                # Filter by document if specified
-                entities_query = """
-                    SELECT DISTINCT e.id, e.type, e.label, e.attributes_json
-                    FROM entities e
-                    JOIN relationships r ON (e.id = r.source OR e.id = r.target)
-                    WHERE r.doc_id = ?
-                """
-                entity_results = self.db_conn.execute(entities_query, [doc_id]).fetchall()
-            else:
-                # Get all entities
-                entities_query = "SELECT id, type, label, attributes_json FROM entities"
-                entity_results = self.db_conn.execute(entities_query).fetchall()
+            # Always get all entities, regardless of relationships
+            entities_query = "SELECT id, type, label, attributes_json FROM entities"
+            entity_results = self.db_conn.execute(entities_query).fetchall()
             
             nodes = []
             for row in entity_results:

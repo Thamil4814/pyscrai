@@ -426,7 +426,8 @@ class ExtractionService:
             )
 
         # Final wait for any remaining async events
-        await asyncio.sleep(3.0)  # Increased from 2.0s to 3.0s
+        logger.info("Waiting for background tasks (embeddings, relationships) to complete...")
+        await asyncio.sleep(20.0)  # Increased from 3.0s to 20.0s
         
         # Get final counts from database
         if self.persistence_service.conn:
