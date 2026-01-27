@@ -54,13 +54,17 @@ class NarrativeSynthesisService:
     
     async def handle_graph_updated(self, payload: EventPayload):
         """Handle graph updated events by generating narratives."""
+        logger.debug(f"{self.service_name}: Received GRAPH_UPDATED event")
+        
         doc_id = payload.get("doc_id")
         graph_stats = payload.get("graph_stats", {})
         
         # Skip if doc_id is None (e.g., during session restore - narrative should be generated per document, not globally)
         if doc_id is None:
-            logger.debug("Skipping narrative generation for None doc_id (session restore)")
+            logger.info(f"{self.service_name}: ⏭️ Skipping narrative generation for None doc_id (session restore)")
             return
+        
+        logger.info(f"{self.service_name}: ✅ Activated - generating narrative for doc_id={doc_id}")
         
         # Emit processing start event
         await self.event_bus.publish(

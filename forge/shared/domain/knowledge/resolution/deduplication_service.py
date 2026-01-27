@@ -71,12 +71,14 @@ class DeduplicationService:
     
     async def handle_graph_updated(self, payload: EventPayload):
         """Handle graph updated events by checking for duplicates."""
+        logger.debug(f"{self.service_name}: Received GRAPH_UPDATED event")
+        
         # Skip deduplication if flag is set (e.g., during session restore)
         if payload.get("skip_deduplication", False):
-            logger.debug("Skipping deduplication (skip_deduplication flag set)")
+            logger.info(f"{self.service_name}: ⏭️ Skipping deduplication (skip_deduplication flag set in payload)")
             return
         
-        logger.info("Checking for duplicate entities")
+        logger.info(f"{self.service_name}: ✅ Activated - checking for duplicate entities")
         
         # Find potential duplicates from Qdrant
         duplicates = await self.qdrant_service.deduplicate_entities(

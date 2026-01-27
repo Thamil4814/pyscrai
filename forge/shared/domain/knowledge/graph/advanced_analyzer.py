@@ -62,6 +62,9 @@ class AdvancedGraphAnalysisService:
     
     async def handle_graph_updated(self, payload: EventPayload):
         """Handle graph updated events by running analytics."""
+        logger.debug("AdvancedGraphAnalysisService: Received GRAPH_UPDATED event")
+        logger.info("AdvancedGraphAnalysisService: ✅ Activated - running graph analytics")
+        
         doc_id = payload.get("doc_id")
         
         # Run comprehensive analysis - if doc_id is None or "unknown", analyze all

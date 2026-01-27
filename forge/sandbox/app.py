@@ -1,7 +1,16 @@
 import streamlit as st
+import streamlit as st
+import logging
+
+# Configure logging to output to terminal/console
+logging.basicConfig(
+    level=logging.INFO,  # Change to logging.DEBUG for more verbosity
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+
 from forge.sandbox.session import Session
 from forge.sandbox.views.project_hub import ProjectHub
-from forge.sandbox.views.extraction_lab import ExtractionLab
+from forge.sandbox.views.data_extraction import ExtractionLab
 from forge.sandbox.views.world_manifest import WorldManifestPage
 from forge.sandbox.views.agent_forge import AgentForgePage
 from forge.sandbox.views.simulation_lab import SimulationLabPage
@@ -22,7 +31,7 @@ def main():
             nav_selection = st.radio(
                 "Module",
                 options=[
-                    "Extraction Lab",
+                    "Data Extraction",
                     "World Manifest",
                     "Agent Forge",
                     "Simulation Lab"
@@ -35,7 +44,7 @@ def main():
                 session.clear_project()
                 st.rerun()
 
-        if nav_selection == "Extraction Lab":
+        if nav_selection == "Data Extraction":
             ExtractionLab().render(session)
         elif nav_selection == "World Manifest":
             page = WorldManifestPage(session)

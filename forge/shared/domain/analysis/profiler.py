@@ -78,10 +78,14 @@ class SemanticProfilerService:
         This is called after entities are persisted to the database, so we can
         safely query them.
         """
+        logger.debug("SemanticProfilerService: Received GRAPH_UPDATED event")
+        
         # Skip semantic profiling if flag is set (e.g., during session restore when profiles are loaded from DB)
         if payload.get("skip_semantic_profiling", False):
-            logger.debug("Skipping semantic profiling (skip_semantic_profiling flag set)")
+            logger.info("SemanticProfilerService: ⏭️ Skipping semantic profiling (skip_semantic_profiling flag set in payload)")
             return
+        
+        logger.info("SemanticProfilerService: ✅ Activated - generating semantic profiles")
         
         graph_stats = payload.get("graph_stats", {})
         nodes = graph_stats.get("nodes", [])

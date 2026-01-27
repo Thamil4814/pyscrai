@@ -8,14 +8,17 @@ Extracted Entities:
 - {{ entity.text }} ({{ entity.type }})
 {% endfor %}
 
-Extract ALL relationships that are explicitly mentioned or strongly implied in the document. For each relationship, provide:
+Extract ALL relationships that are explicitly mentioned or strongly implied in the document.
+For each relationship, provide:
 - source: The source entity name (exactly as listed above)
 - target: The target entity name (exactly as listed above)
-- type: The relationship type. Use specific types such as:
+- type: The relationship type.
+Use specific types such as:
   * WORKS_AT / MEMBER_OF / PART_OF (for organizational membership)
   * LOCATED_AT / OPERATED_AT / BASED_AT (for location relationships)
   * RECEIVED_FROM / TRANSFERRED_TO / SENT_TO (for transactions)
   * COMMANDED_BY / REPORTS_TO / UNDER (for hierarchy)
+  * LIKES / DISLIKES / TRUSTS / DISTRUSTS (for sentiment/social)
   * ASSOCIATED_WITH / RELATED_TO (for general associations)
   * STATUS / CONDITION (for states like "under siege")
 - confidence: A confidence score from 0.0 to 1.0 based on how explicit the relationship is in the text
@@ -25,6 +28,7 @@ Extract ALL relationships that are explicitly mentioned or strongly implied in t
   * Below 0.5: Do not include
 
 IMPORTANT:
+- CRITICAL: Respect negations. If text says "X does not like Y", the type must be "DISLIKES" or "DOES_NOT_LIKE", NEVER "LIKES".
 - Only extract relationships that are actually mentioned or clearly implied in the document
 - Do NOT create relationships just because entities appear together
 - Use the exact entity names as they appear in the entity list above
@@ -59,4 +63,5 @@ Example with special characters:
   }
 ]
 
-Respond with ONLY the JSON array. Do not include markdown code blocks (```json or ```), explanations, or any other text. The response must be valid JSON that can be parsed by json.loads() with no errors.
+Respond with ONLY the JSON array. Do not include markdown code blocks (```json or ```), explanations, or any other text.
+The response must be valid JSON that can be parsed by json.loads() with no errors.

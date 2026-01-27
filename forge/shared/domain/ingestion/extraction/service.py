@@ -11,9 +11,17 @@ import duckdb
 from forge.shared.core.event_bus import EventBus, EventPayload
 from forge.shared.core import events
 from forge.shared.core.services import BaseLLMService, call_llm_and_parse_json
+from forge.shared.core.configuration import ConfigManager
 from forge.shared.infrastructure.llm.base import LLMProvider
 from forge.shared.config.prompts import render_prompt
 from forge.shared.infrastructure.llm.provider_factory import ProviderFactory
+from forge.shared.infrastructure.vector.qdrant_service import QdrantService
+from forge.shared.infrastructure.embeddings.embedding_service import EmbeddingService
+from forge.shared.domain.ingestion.metadata.service import DocumentMetadataService
+from forge.shared.domain.knowledge.resolution.deduplication_service import DeduplicationService
+from forge.shared.domain.knowledge.graph.advanced_analyzer import AdvancedGraphAnalysisService
+from forge.shared.domain.analysis.profiler import SemanticProfilerService
+from forge.shared.domain.synthesis.narrative import NarrativeSynthesisService
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +152,11 @@ class ExtractionService:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         
+        # Initialize configuration manager
+        self.config_manager = ConfigManager()
+        self.config = self.config_manager.get_config()
+        logger.info(f"ExtractionService: Configuration loaded (vector.url={self.config.vector.url})")
+        
         # Initialize event bus and services
         self.event_bus = EventBus()
         self.llm_provider: Optional[LLMProvider] = None
@@ -161,17 +174,62 @@ class ExtractionService:
             from forge.shared.domain.knowledge.graph.service import GraphAnalysisService
             from forge.shared.infrastructure.persistence.duckdb_service import DuckDBPersistenceService
             
-            # Initialize extraction service (subscribes to TOPIC_DATA_INGESTED)
+            # Initialize infrastructure (Vector DB for deduplication)
+            # Load from config with environment variable override support
+            qdrant_url = os.environ.get("QDRANT_URL", self.config.vector.url)
+            qdrant_api_key = os.environ.get("QDRANT_API_KEY", self.config.vector.api_key)
+            
+            self.qdrant_service = QdrantService(
+                self.event_bus,
+                url=qdrant_url,
+                api_key=qdrant_api_key,
+                embedding_dimension=self.config.vector.embedding_dimension,
+            )
+            logger.info(f"ExtractionService: Qdrant initialized with url={qdrant_url}")
+            
+            # Initialize embedding service (required for vector operations)
+            self.embedding_service = EmbeddingService(
+                event_bus=self.event_bus,
+                device=self.config.embedding.device,
+                general_model=self.config.embedding.general_model,
+                long_context_model=self.config.embedding.long_context_model,
+                batch_size=self.config.embedding.batch_size,
+                long_context_threshold=self.config.embedding.long_context_threshold,
+            )
+
+            # Initialize core pipeline services
+            self.metadata_service = DocumentMetadataService(self.event_bus, None)
             self.extraction_service = DocumentExtractionService(self.event_bus, self.llm_provider)
-            
-            # Initialize resolution service (subscribes to TOPIC_ENTITY_EXTRACTED)
             self.resolution_service = EntityResolutionService(self.event_bus, self.llm_provider)
-            
-            # Initialize graph service (subscribes to TOPIC_RELATIONSHIP_FOUND)
             self.graph_service = GraphAnalysisService(self.event_bus)
-            
-            # Initialize persistence service (subscribes to TOPIC_GRAPH_UPDATED)
             self.persistence_service = DuckDBPersistenceService(self.event_bus, self.db_path)
+
+            # Initialize intelligence/analysis services
+            self.deduplication_service = DeduplicationService(
+                event_bus=self.event_bus,
+                qdrant_service=self.qdrant_service,
+                llm_provider=self.llm_provider,
+                db_connection=None,
+                auto_merge=True
+            )
+
+            self.advanced_graph_service = AdvancedGraphAnalysisService(
+                self.event_bus,
+                self.llm_provider,
+                None
+            )
+
+            self.profiler_service = SemanticProfilerService(
+                self.event_bus,
+                self.llm_provider,
+                None
+            )
+
+            self.narrative_service = NarrativeSynthesisService(
+                self.event_bus,
+                self.llm_provider,
+                None
+            )
             
             logger.info("ExtractionService: All services initialized successfully")
         except Exception as e:
@@ -241,15 +299,46 @@ class ExtractionService:
         """Async processing of all documents in a directory."""
         logger.info(f"ExtractionService._process_directory_async: Starting with {len(files)} files")
         
-        # Start all services
+        # Start infrastructure and persistence
         logger.info("ExtractionService: Starting persistence service...")
         await self.persistence_service.start()
+        logger.info("ExtractionService: Starting Qdrant vector service...")
+        await self.qdrant_service.start()
+        logger.info("ExtractionService: Starting embedding service...")
+        await self.embedding_service.start()
+
+        # Share DB connection with services that need it
+        db_conn = self.persistence_service.conn
+        if hasattr(self, "graph_service") and hasattr(self.graph_service, "update_db_connection"):
+            self.graph_service.update_db_connection(db_conn)
+        if hasattr(self, "deduplication_service") and hasattr(self.deduplication_service, "db_conn"):
+            self.deduplication_service.db_conn = db_conn
+        if hasattr(self, "advanced_graph_service") and hasattr(self.advanced_graph_service, "update_db_connection"):
+            self.advanced_graph_service.update_db_connection(db_conn)
+        if hasattr(self, "profiler_service") and hasattr(self.profiler_service, "update_db_connection"):
+            self.profiler_service.update_db_connection(db_conn)
+        if hasattr(self, "narrative_service") and hasattr(self.narrative_service, "db_conn"):
+            self.narrative_service.db_conn = db_conn
+        if hasattr(self, "metadata_service") and hasattr(self.metadata_service, "persistence"):
+            self.metadata_service.persistence = self.persistence_service
+
+        # Start domain services (order matters: embedding before deduplication)
+        logger.info("ExtractionService: Starting metadata service...")
+        await self.metadata_service.start()
         logger.info("ExtractionService: Starting extraction service...")
         await self.extraction_service.start()
         logger.info("ExtractionService: Starting resolution service...")
         await self.resolution_service.start()
         logger.info("ExtractionService: Starting graph service...")
         await self.graph_service.start()
+        logger.info("ExtractionService: Starting deduplication service (requires embeddings)...")
+        await self.deduplication_service.start()
+        logger.info("ExtractionService: Starting advanced graph analysis service...")
+        await self.advanced_graph_service.start()
+        logger.info("ExtractionService: Starting semantic profiler service...")
+        await self.profiler_service.start()
+        logger.info("ExtractionService: Starting narrative synthesis service...")
+        await self.narrative_service.start()
         logger.info("ExtractionService: All services started successfully")
         
         logger.info(f"Starting extraction pipeline for {len(files)} files")

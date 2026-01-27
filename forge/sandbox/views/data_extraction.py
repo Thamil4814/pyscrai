@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 class ExtractionLab:
     def render(self, session):
-        st.header("⚗️ Extraction Lab")
+        st.header("⚗️ Data Extraction")
         st.caption("Ingest documents and transmute them into knowledge entities.")
 
         col_left, col_right = st.columns([1, 2], gap="large")
@@ -78,7 +78,7 @@ class ExtractionLab:
                 
                 if "error" in result:
                     st.error(f"❌ {result['error']}")
-                    status.update(label="Extraction failed", state="error")
+                    status.update(label="Data Extraction failed", state="error")
                 else:
                     with log_container:
                         st.write(f"✅ Processed {result['processed_files']} files")

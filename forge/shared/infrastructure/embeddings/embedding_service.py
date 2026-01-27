@@ -221,7 +221,8 @@ class EmbeddingService:
         doc_id = payload.get("doc_id", "unknown")
         entities = payload.get("entities", [])
         
-        logger.info(f"Embedding {len(entities)} entities from doc {doc_id}")
+        logger.debug(f"EmbeddingService: Received ENTITY_EXTRACTED event for doc {doc_id}")
+        logger.info(f"EmbeddingService: ✅ Activated - embedding {len(entities)} entities from doc {doc_id}")
         
         # Prepare texts for embedding
         texts = []
@@ -263,7 +264,8 @@ class EmbeddingService:
         doc_id = payload.get("doc_id", "unknown")
         relationships = payload.get("relationships", [])
         
-        logger.info(f"Embedding {len(relationships)} relationships from doc {doc_id}")
+        logger.debug(f"EmbeddingService: Received RELATIONSHIP_FOUND event for doc {doc_id}")
+        logger.info(f"EmbeddingService: ✅ Activated - embedding {len(relationships)} relationships from doc {doc_id}")
         
         # Prepare texts for embedding
         texts = []
