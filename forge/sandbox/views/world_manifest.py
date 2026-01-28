@@ -196,32 +196,62 @@ class WorldManifestPage:
     
     def _render_entity_card(self, entity: pd.Series):
         """Render individual entity card."""
+        # Load semantic profile if available
+        profile = None
+        if self.session.db is not None:
+            profile = self.session.db.get_semantic_profile(entity['id'])
+        
         with st.container():
-            col1, col2, col3 = st.columns([3, 2, 1])
+            col1, col2, col3 = st.columns([3, 4, 1])
             
             with col1:
                 st.markdown(f"**🏷️ {entity['label']}**")
                 st.markdown(f"*ID: {entity['id']}*")
+                
+                if profile:
+                    score = profile[4] # significance_score
+                    st.progress(score, text=f"Significance: {score:.2f}")
             
             with col2:
-                # Show attributes preview
-                if entity['attributes_json']:
-                    try:
+                if profile:
+                    st.markdown("**Semantic Summary:**")
+                    st.markdown(profile[1]) # summary
+                    
+                    with st.expander("Key Attributes & Significance"):
                         import json
-                        attrs = json.loads(entity['attributes_json'])
-                        if attrs:
-                            # Show first few attributes
-                            preview_attrs = list(attrs.items())[:2]
-                            for key, value in preview_attrs:
-                                st.markdown(f"• **{key}:** {str(value)[:50]}{'...' if len(str(value)) > 50 else ''}")
-                            if len(attrs) > 2:
-                                st.markdown(f"*...and {len(attrs) - 2} more attributes*")
-                    except:
-                        st.markdown("*Raw attributes available*")
+                        try:
+                            attrs = json.loads(profile[2]) if profile[2] else []
+                            if attrs:
+                                st.markdown("**Key Attributes:**")
+                                for attr in attrs:
+                                    st.markdown(f"• {attr}")
+                            
+                            related = json.loads(profile[3]) if profile[3] else []
+                            if related:
+                                st.markdown("**Related Entities:**")
+                                for rel in related:
+                                    st.markdown(f"• {rel}")
+                        except:
+                            st.markdown("*Error parsing profile details*")
+                else:
+                    # Fallback to attributes preview
+                    if entity['attributes_json']:
+                        try:
+                            import json
+                            attrs = json.loads(entity['attributes_json'])
+                            if attrs:
+                                st.markdown("**Attributes:**")
+                                preview_attrs = list(attrs.items())[:3]
+                                for key, value in preview_attrs:
+                                    st.markdown(f"• **{key}:** {str(value)[:50]}{'...' if len(str(value)) > 50 else ''}")
+                                if len(attrs) > 3:
+                                    st.markdown(f"*...and {len(attrs) - 3} more*")
+                        except:
+                            st.markdown("*Raw attributes available*")
             
             with col3:
                 # Action buttons
-                if st.button(f"👤 Make Agent", key=f"agent_{entity['id']}", help="Promote to active agent"):
+                if st.button(f"👤 Agent", key=f"agent_{entity['id']}", help="Promote to active agent"):
                     # Set in session for navigation to Agent Forge
                     self.session.selected_entity = {
                         'id': entity['id'],
@@ -229,8 +259,27 @@ class WorldManifestPage:
                         'type': entity['type'],
                         'is_active': False
                     }
-                    st.session_state['page'] = 'agent_forge'
+                    st.session_state['main_nav'] = 'Agent Forge'
                     st.rerun()
+                
+                if st.button(f"🕸️ Graph", key=f"graph_{entity['id']}", help="View in Network Analysis"):
+                    self.session.selected_entity = {
+                        'id': entity['id'],
+                        'label': entity['label'],
+                        'type': entity['type']
+                    }
+                    st.session_state['main_nav'] = 'Network Analysis'
+                    st.rerun()
+                
+                if entity['type'] == 'LOCATION':
+                    if st.button(f"📍 Map", key=f"map_{entity['id']}", help="View in Spatial Domain"):
+                        self.session.selected_entity = {
+                            'id': entity['id'],
+                            'label': entity['label'],
+                            'type': entity['type']
+                        }
+                        st.session_state['main_nav'] = 'Spatial Domain'
+                        st.rerun()
             
             st.markdown("---")
     

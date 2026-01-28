@@ -18,6 +18,8 @@ class EventBus:
         self._lock: Optional[asyncio.Lock] = None
         self._loop_id: Optional[int] = None
         self._logger = logging.getLogger(__name__)
+        # Track pending tasks for deterministic waiting
+        self._pending_tasks: set[asyncio.Task] = set()
     
     def _ensure_lock(self) -> asyncio.Lock:
         """Get or create lock for current event loop."""
@@ -65,7 +67,40 @@ class EventBus:
 
         self._logger.debug(f"Publishing to topic '{topic}' with {len(handlers)} handler(s)")
         for handler in handlers:
-            asyncio.create_task(self._safe_dispatch(topic, handler, payload))
+            task = asyncio.create_task(self._safe_dispatch(topic, handler, payload))
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+
+    async def wait_until_idle(self, timeout: float = 60.0) -> bool:
+        """Wait for all pending event handlers to complete.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            True if all tasks completed, False if timeout reached
+        """
+        if not self._pending_tasks:
+            return True
+            
+        self._logger.info(f"EventBus: Waiting for {len(self._pending_tasks)} pending tasks...")
+        
+        start_time = asyncio.get_running_loop().time()
+        while self._pending_tasks:
+            # Check for timeout
+            if asyncio.get_running_loop().time() - start_time > timeout:
+                self._logger.warning(f"EventBus: Timeout reached while waiting for {len(self._pending_tasks)} tasks")
+                return False
+                
+            # Wait for current tasks to finish
+            # Note: tasks might spawn new tasks, so we loop
+            await asyncio.gather(*list(self._pending_tasks), return_exceptions=True)
+            
+            # Give a small slice of time for any newly created tasks to be registered
+            await asyncio.sleep(0.1)
+            
+        self._logger.info("EventBus: All tasks completed")
+        return True
 
     async def _safe_dispatch(
         self,

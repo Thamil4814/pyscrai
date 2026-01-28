@@ -37,6 +37,8 @@ install_requires = [
     # --- SANDBOX / STREAMLIT ---
     "streamlit>=1.35.0",        # Core UI framework for Sandbox
     "streamlit-agraph",         # Knowledge Graph visualization
+    "streamlit-folium",         # Folium maps for Streamlit
+    "folium",                   # Map engine
     "leafmap",                  # Spatial Domain / Map overlay
     "watchdog",                 # Auto-reload during development
     

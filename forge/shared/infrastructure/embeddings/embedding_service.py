@@ -106,16 +106,20 @@ class EmbeddingService:
         
         return self._batch_lock
         
-    @property
-    def general_model(self):
-        """Lazy-load general purpose model."""
+    async def get_general_model(self):
+        """Lazy-load general purpose model without blocking the event loop."""
         if self._general_model is None:
             try:
                 from sentence_transformers import SentenceTransformer
                 logger.info(f"Loading general model {self.general_model_name} on {self.device}")
-                self._general_model = SentenceTransformer(
-                    self.general_model_name,
-                    device=self.device
+                
+                loop = asyncio.get_running_loop()
+                self._general_model = await loop.run_in_executor(
+                    None,
+                    lambda: SentenceTransformer(
+                        self.general_model_name,
+                        device=self.device
+                    )
                 )
                 logger.info("General model loaded successfully")
             except ImportError:
@@ -126,16 +130,20 @@ class EmbeddingService:
                 raise
         return self._general_model
     
-    @property
-    def long_context_model(self):
-        """Lazy-load long context model."""
+    async def get_long_context_model(self):
+        """Lazy-load long context model without blocking the event loop."""
         if self._long_context_model is None:
             try:
                 from sentence_transformers import SentenceTransformer
                 logger.info(f"Loading long context model {self.long_context_model_name} on {self.device}")
-                self._long_context_model = SentenceTransformer(
-                    self.long_context_model_name,
-                    device=self.device
+                
+                loop = asyncio.get_running_loop()
+                self._long_context_model = await loop.run_in_executor(
+                    None,
+                    lambda: SentenceTransformer(
+                        self.long_context_model_name,
+                        device=self.device
+                    )
                 )
                 logger.info("Long context model loaded successfully")
             except ImportError:
@@ -149,6 +157,9 @@ class EmbeddingService:
     async def start(self):
         """Start the service and subscribe to events."""
         logger.info("Starting EmbeddingService")
+        # Pre-load models in background to avoid delay on first use
+        asyncio.create_task(self.get_general_model())
+        
         await self.event_bus.subscribe(events.TOPIC_ENTITY_EXTRACTED, self.handle_entity_extracted)
         await self.event_bus.subscribe(events.TOPIC_RELATIONSHIP_FOUND, self.handle_relationship_found)
         logger.info("EmbeddingService started")
@@ -177,10 +188,10 @@ class EmbeddingService:
             use_long_context = True
         
         # Select model
-        model = self.long_context_model if use_long_context else self.general_model
+        model = await self.get_long_context_model() if use_long_context else await self.get_general_model()
         
         # Run embedding in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         embedding = await loop.run_in_executor(
             None,
             lambda: model.encode(text, convert_to_tensor=False).tolist()
@@ -215,10 +226,10 @@ class EmbeddingService:
                 use_long_context = True
         
         # Select model
-        model = self.long_context_model if use_long_context else self.general_model
+        model = await self.get_long_context_model() if use_long_context else await self.get_general_model()
         
         # Run batch embedding in thread pool
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         embeddings = await loop.run_in_executor(
             None,
             lambda: model.encode(

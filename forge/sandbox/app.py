@@ -12,6 +12,9 @@ from forge.sandbox.session import Session
 from forge.sandbox.views.project_hub import ProjectHub
 from forge.sandbox.views.data_extraction import ExtractionLab
 from forge.sandbox.views.world_manifest import WorldManifestPage
+from forge.sandbox.views.intel_briefing import IntelligenceBriefingPage
+from forge.sandbox.views.network_analysis import NetworkAnalysisPage
+from forge.sandbox.views.spatial_domain import SpatialDomainPage
 from forge.sandbox.views.agent_forge import AgentForgePage
 from forge.sandbox.views.simulation_lab import SimulationLabPage
 
@@ -32,7 +35,10 @@ def main():
                 "Module",
                 options=[
                     "Data Extraction",
+                    "Intelligence Briefing",
                     "World Manifest",
+                    "Network Analysis",
+                    "Spatial Domain",
                     "Agent Forge",
                     "Simulation Lab"
                 ],
@@ -46,8 +52,17 @@ def main():
 
         if nav_selection == "Data Extraction":
             ExtractionLab().render(session)
+        elif nav_selection == "Intelligence Briefing":
+            page = IntelligenceBriefingPage(session)
+            page.render()
         elif nav_selection == "World Manifest":
             page = WorldManifestPage(session)
+            page.render()
+        elif nav_selection == "Network Analysis":
+            page = NetworkAnalysisPage(session)
+            page.render()
+        elif nav_selection == "Spatial Domain":
+            page = SpatialDomainPage(session)
             page.render()
         elif nav_selection == "Agent Forge":
             page = AgentForgePage(session)

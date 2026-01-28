@@ -425,9 +425,9 @@ class ExtractionService:
                 )
             )
 
-        # Final wait for any remaining async events
-        logger.info("Waiting for background tasks (embeddings, relationships) to complete...")
-        await asyncio.sleep(20.0)  # Increased from 3.0s to 20.0s
+        # Final wait for all background tasks to complete deterministically
+        logger.info("Deterministic wait: Waiting for all EventBus tasks (embeddings, relationships, graph) to complete...")
+        await self.event_bus.wait_until_idle(timeout=120.0)
         
         # Get final counts from database
         if self.persistence_service.conn:

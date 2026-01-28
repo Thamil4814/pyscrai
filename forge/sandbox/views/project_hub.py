@@ -29,7 +29,7 @@ class ProjectHub:
             return
 
         for p in projects:
-            col1, col2 = st.columns([0.8, 0.2])
+            col1, col2, col3 = st.columns([0.7, 0.15, 0.15])
             with col1:
                 st.markdown(f"**{p.name}**")
                 st.caption(f"Path: {p}")
@@ -37,6 +37,32 @@ class ProjectHub:
                 if st.button("Load", key=f"btn_load_{p.name}", use_container_width=True):
                     session.load_project(p)
                     st.rerun()
+            with col3:
+                delete_style = """
+                    <style>
+                    .stButton > button[data-testid='baseButton'][key^='btn_delete_'] {
+                        background-color: #ff4d4f;
+                        color: white;
+                        border: 1px solid #ff4d4f;
+                    }
+                    </style>
+                """
+                st.markdown(delete_style, unsafe_allow_html=True)
+                confirm_key = f"confirm_delete_{p.name}"
+                if st.session_state.get(confirm_key):
+                    if st.button("Are you sure? Click to confirm", key=f"btn_confirm_delete_{p.name}", use_container_width=True):
+                        import shutil
+                        try:
+                            shutil.rmtree(p)
+                            st.success(f"Deleted project {p.name}")
+                            del st.session_state[confirm_key]
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to delete: {e}")
+                else:
+                    if st.button("Delete", key=f"btn_delete_{p.name}", use_container_width=True):
+                        st.session_state[confirm_key] = True
+                
             st.divider()
 
     def _render_create_tab(self, session):

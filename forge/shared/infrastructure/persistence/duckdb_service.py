@@ -378,6 +378,22 @@ class DuckDBPersistenceService:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_narratives_created ON narratives(created_at)
             """)
+
+            # Document Metadata table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS document_metadata (
+                    doc_id VARCHAR PRIMARY KEY,
+                    classification VARCHAR,
+                    report_id VARCHAR,
+                    date VARCHAR,
+                    precedence VARCHAR,
+                    authoring_unit VARCHAR,
+                    zone VARCHAR,
+                    metadata_json TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         
             # Project Configuration table for storing project-specific settings
             conn.execute("""

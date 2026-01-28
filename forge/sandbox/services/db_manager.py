@@ -1,8 +1,10 @@
 # forge/sandbox/services/db_manager.py
+
 import duckdb
 from pathlib import Path
 from typing import List, Optional, Union
 import streamlit as st
+import pandas as pd
 
 
 class ProjectManager:
@@ -86,25 +88,61 @@ class SandboxDB:
         if not self.conn:
             return
             
-        # Extraction Tables (formerly in intel.duckdb)
+        # Extraction Tables (synchronized with DuckDBPersistenceService)
         self.conn.execute("""
             CREATE SEQUENCE IF NOT EXISTS rel_seq START 1;
             CREATE TABLE IF NOT EXISTS entities (
                 id VARCHAR PRIMARY KEY,
-                type VARCHAR,
-                label VARCHAR,
+                type VARCHAR NOT NULL,
+                label VARCHAR NOT NULL,
                 attributes_json TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS relationships (
                 id INTEGER PRIMARY KEY DEFAULT nextval('rel_seq'),
-                source VARCHAR,
-                target VARCHAR,
-                type VARCHAR,
-                confidence DOUBLE,
+                source VARCHAR NOT NULL,
+                target VARCHAR NOT NULL,
+                type VARCHAR NOT NULL,
+                confidence DOUBLE NOT NULL,
                 doc_id VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (source) REFERENCES entities(id),
+                FOREIGN KEY (target) REFERENCES entities(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS semantic_profiles (
+                entity_id VARCHAR PRIMARY KEY,
+                summary TEXT NOT NULL,
+                key_attributes TEXT,
+                related_entities TEXT,
+                significance_score DOUBLE,
+                profile_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (entity_id) REFERENCES entities(id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS narratives (
+                doc_id VARCHAR PRIMARY KEY,
+                narrative TEXT NOT NULL,
+                entity_count INTEGER,
+                relationship_count INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            
+            CREATE TABLE IF NOT EXISTS document_metadata (
+                doc_id VARCHAR PRIMARY KEY,
+                classification VARCHAR,
+                report_id VARCHAR,
+                date VARCHAR,
+                precedence VARCHAR,
+                authoring_unit VARCHAR,
+                zone VARCHAR,
+                metadata_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
         
@@ -117,7 +155,8 @@ class SandboxDB:
                 capabilities TEXT,
                 state TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES entities(id)
             );
             
             CREATE TABLE IF NOT EXISTS spatial_bookmarks (
@@ -127,7 +166,8 @@ class SandboxDB:
                 elevation DOUBLE,
                 spatial_tags TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (location_id) REFERENCES entities(id)
             );
             
             CREATE TABLE IF NOT EXISTS narrative_context (
@@ -188,6 +228,43 @@ class SandboxDB:
         """
         return self.conn.execute(query).df()
     
+    def get_semantic_profile(self, entity_id: str):
+        """Get semantic profile for an entity."""
+        if not self.conn:
+            return None
+        result = self.conn.execute("SELECT * FROM semantic_profiles WHERE entity_id = ?", [entity_id]).fetchone()
+        return result
+
+    def get_narratives(self):
+        """Get all document narratives."""
+        if not self.conn:
+            return pd.DataFrame()
+        return self.conn.execute("SELECT * FROM narratives").df()
+
+    def get_document_metadata(self):
+        """Get all document metadata."""
+        if not self.conn:
+            return pd.DataFrame()
+        return self.conn.execute("SELECT * FROM document_metadata").df()
+
+    def save_spatial_bookmark(self, location_id: str, latitude: float, longitude: float, elevation: float = 0.0, tags: str = ""):
+        """Save or update a spatial bookmark."""
+        if not self.conn:
+            return
+        
+        self.conn.execute("""
+            INSERT INTO spatial_bookmarks (location_id, latitude, longitude, elevation, spatial_tags, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (location_id) 
+            DO UPDATE SET 
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
+                elevation = EXCLUDED.elevation,
+                spatial_tags = EXCLUDED.spatial_tags,
+                updated_at = CURRENT_TIMESTAMP
+        """, [location_id, latitude, longitude, elevation, tags])
+        self.conn.commit()
+
     def get_active_agents(self):
         """Get all active agents with entity details."""
         import pandas as pd
